@@ -1,453 +1,191 @@
-/*
- * Copyright https://github.com/divio/django-cms
- */
+class adminModal extends HTMLElement {
+  constructor () {
+    super();
 
-import ChangeTracker from './cms.changetracker';
-import keyboard from './keyboard';
+    this.maximized = false;
+    this.minimized = false;
+    this.ui = {}
+  }
 
-import $ from 'jquery';
-import './jquery.transition';
-import './jquery.trap';
+  _initUI() {
+    this.ui = {
+      modal: this.shadowRoot.querySelector('.cms-modal'),
+      //body: $('html'),
+      //window: $(window),
+      //toolbarLeftPart: $('.cms-toolbar-left'),
+      closeButton: this.shadowRoot.querySelector('.cms-icon-close'),
+      minimizeButton: this.shadowRoot.querySelector('.cms-modal-minimize'),
+      maximizeButton: this.shadowRoot.querySelector('.cms-modal-maximize'),
+      //title: modal.find('.cms-modal-title'),
+      titlePrefix: this.shadowRoot.querySelector('.cms-modal-title-prefix'),
+      titleSuffix: this.shadowRoot.querySelector('.cms-modal-title-suffix'),
+      //resize: modal.find('.cms-modal-resize'),
+      //breadcrumb: modal.find('.cms-modal-breadcrumb'),
+      //closeAndCancel: modal.find('.cms-modal-close, .cms-modal-cancel'),
+      modalButtons: this.shadowRoot.querySelector('.cms-modal-buttons'),
+      //modalBody: modal.find('.cms-modal-body'),
+      frame: this.shadowRoot.querySelector('.cms-modal-frame'),
+      //shim: modal.find('.cms-modal-shim')
+    };
+  }
+  _initEventListeners() {
+    this.ui.closeButton.addEventListener('click', this.close.bind(this));
+    this.ui.minimizeButton.addEventListener('click', this.minimize.bind(this));
+    this.ui.maximizeButton.addEventListener('click', this.maximize.bind(this));
+  }
 
-import { Helpers, KEYS } from './cms.base';
-import { showLoader, hideLoader } from './loader';
 
-var previousKeyboardContext;
-var previouslyFocusedElement;
+  open(opts) {
+    console.log("Modal: Opening")
 
-/**
- * The modal is triggered via API calls from the backend either
- * through the toolbar navigation or from plugins. The APIs allow to
- * open content from a url (iframe) or inject html directly.
- *
- * @class Modal
- * @namespace CMS
- */
-class Modal {
-    constructor(options) {
-        this.options = $.extend(true, {}, Modal.options, options);
-
-        // elements
-        this._setupUI();
-
-        // states and events
-        this.click = 'click.cms.modal';
-        this.pointerDown = 'pointerdown.cms.modal contextmenu.cms.modal';
-        this.pointerUp = 'pointerup.cms.modal pointercancel.cms.modal';
-        this.pointerMove = 'pointermove.cms.modal';
-        this.doubleClick = 'dblclick.cms.modal';
-        this.touchEnd = 'touchend.cms.modal';
-        this.keyUp = 'keyup.cms.modal';
-        this.maximized = false;
-        this.minimized = false;
-        this.triggerMaximized = false;
-        this.saved = false;
-
-        this._beforeUnloadHandler = this._beforeUnloadHandler.bind(this);
+    // setup internals
+    if (!((opts && opts.url) || (opts && opts.html))) {
+        throw new Error('The arguments passed to "open" were invalid.');
     }
 
-    /**
-     * Stores all jQuery references within `this.ui`.
-     *
-     * @method _setupUI
-     * @private
-     */
-    _setupUI() {
-        var modal = $('.cms-modal');
+    /*
+    // We have to rebind events every time we open a modal
+    // because the event handlers contain references to the instance
+    // and since we reuse the same markup we need to update
+    // that instance reference every time.
+    this._events();
 
-        this.ui = {
-            modal: modal,
-            body: $('html'),
-            window: $(window),
-            toolbarLeftPart: $('.cms-toolbar-left'),
-            minimizeButton: modal.find('.cms-modal-minimize'),
-            maximizeButton: modal.find('.cms-modal-maximize'),
-            title: modal.find('.cms-modal-title'),
-            titlePrefix: modal.find('.cms-modal-title-prefix'),
-            titleSuffix: modal.find('.cms-modal-title-suffix'),
-            resize: modal.find('.cms-modal-resize'),
-            breadcrumb: modal.find('.cms-modal-breadcrumb'),
-            closeAndCancel: modal.find('.cms-modal-close, .cms-modal-cancel'),
-            modalButtons: modal.find('.cms-modal-buttons'),
-            modalBody: modal.find('.cms-modal-body'),
-            frame: modal.find('.cms-modal-frame'),
-            shim: modal.find('.cms-modal-shim')
-        };
+    Helpers.dispatchEvent('modal-load', {instance: this});
+    // // trigger the event also on the dom element,
+    // // because if we load another modal while one is already open
+    // // the older instance won't receive any updates
+    // this.ui.modal.trigger('cms.modal.load');
+
+    // common elements state
+    this.ui.resize.toggle(this.options.resizable);
+    this.ui.minimizeButton.toggle(this.options.minimizable);
+    this.ui.maximizeButton.toggle(this.options.maximizable);
+
+    var position = this._calculateNewPosition(opts);
+
+    this.ui.maximizeButton.removeClass('cms-modal-maximize-active');
+    this.maximized = false;
+
+    // because a new instance is called, we have to ensure minimized state is removed #3620
+    if (this.ui.body.hasClass('cms-modal-minimized')) {
+      this.minimized = true;
+      this.minimize();
     }
 
-    /**
-     * Sets up all the event handlers, such as maximize/minimize and resizing.
-     *
-     * @method _events
-     * @private
-     */
-    _events() {
-        var that = this;
+    // clear elements
+    this.ui.modalButtons.empty();
+    this.ui.breadcrumb.empty();
 
-        // modal behaviours
-        this.ui.minimizeButton
-            .off(this.click + ' ' + this.touchEnd + ' ' + this.keyUp)
-            .on(this.click + ' ' + this.touchEnd + ' ' + this.keyUp, function(e) {
-                if (e.type !== 'keyup' || (e.type === 'keyup' && e.keyCode === KEYS.ENTER)) {
-                    e.preventDefault();
-                    that.minimize();
-                }
-            });
-        this.ui.maximizeButton
-            .off(this.click + ' ' + this.touchEnd + ' ' + this.keyUp)
-            .on(this.click + ' ' + this.touchEnd + ' ' + this.keyUp, function(e) {
-                if (e.type !== 'keyup' || (e.type === 'keyup' && e.keyCode === KEYS.ENTER)) {
-                    e.preventDefault();
-                    that.maximize();
-                }
-            });
+    // remove class from modal when no breadcrumbs is rendered
+    this.ui.modal.removeClass('cms-modal-has-breadcrumb');
 
-        this.ui.title.off(this.pointerDown).on(this.pointerDown, function(e) {
-            e.preventDefault();
-            that._startMove(e);
-        });
-        this.ui.title.off(this.doubleClick).on(this.doubleClick, function() {
-            that.maximize();
-        });
+    // hide tooltip
+    CMS.API.Tooltip.hide();
 
-        this.ui.resize.off(this.pointerDown).on(this.pointerDown, function(e) {
-            e.preventDefault();
-            that._startResize(e);
-        });
+    */
 
-        this.ui.closeAndCancel
-            .off(this.click + ' ' + this.touchEnd + ' ' + this.keyUp)
-            .on(this.click + ' ' + this.touchEnd + ' ' + this.keyUp, function(e) {
-                if (e.type !== 'keyup' || (e.type === 'keyup' && e.keyCode === KEYS.ENTER)) {
-                    e.preventDefault();
-                    that._cancelHandler();
-                }
-            });
+    // we need to position the modal in the center
+    const that = this
+    const width = opts.width;
+    const height = opts.height;
+    const top = opts.top;
+    const left = opts.left;
 
-        // elements within the window
-        this.ui.breadcrumb.off(this.click, 'a').on(this.click, 'a', function(e) {
-            e.preventDefault();
-            that._changeIframe($(this));
-        });
+    this.ui.modal.style.display = 'block';
+    this.ui.modal.style.width = width;
+    this.ui.modal.style.height = height;
+    this.ui.modal.style.top = top;
+    this.ui.modal.style.left = left;
+    this.ui.modal.style.marginLeft = -(width / 2);
+    this.ui.modal.style.marginTop = -(height / 2);
+
+    this._cleanUiFrameContents();
+
+    // redirect to iframe rendering if url is provided
+    if (opts.url) {
+      this._loadIframe({
+        url: opts.url,
+        title: opts.title,
+        breadcrumbs: opts.breadcrumbs
+      });
+    } else {
+      // if url is not provided we go for html
+      this._loadMarkup({
+        html: opts.html,
+        title: opts.title,
+        subtitle: opts.subtitle
+      });
     }
 
-    /**
-     * Opens the modal either in an iframe or renders markup.
-     *
-     * @method open
-     * @chainable
-     * @param {Object} opts either `opts.url` or `opts.html` are required
-     * @param {Object[]} [opts.breadcrumbs] collection of breadcrumb items
-     * @param {String|HTMLNode|jQuery} [opts.html] html markup to render
-     * @param {String} [opts.title] modal window main title (bold)
-     * @param {String} [opts.subtitle] modal window secondary title (normal)
-     * @param {String} [opts.url] url to render iframe, takes precedence over `opts.html`
-     * @param {Number} [opts.width] sets the width of the modal
-     * @param {Number} [opts.height] sets the height of the modal
-     * @returns {Class} this
-     */
-    open(opts) {
-        // setup internals
-        if (!((opts && opts.url) || (opts && opts.html))) {
-            throw new Error('The arguments passed to "open" were invalid.');
-        }
+    // setImmediate is required to go into the next frame
+    setTimeout(function () {
+      that.ui.modal.classList.add("cms-modal-open");
+    }, 0);
 
-        // We have to rebind events every time we open a modal
-        // because the event handlers contain references to the instance
-        // and since we reuse the same markup we need to update
-        // that instance reference every time.
-        this._events();
+    // set focus to modal
+    this.ui.modal.focus();
 
-        Helpers.dispatchEvent('modal-load', { instance: this });
-        // // trigger the event also on the dom element,
-        // // because if we load another modal while one is already open
-        // // the older instance won't receive any updates
-        // this.ui.modal.trigger('cms.modal.load');
+    /*
+    Helpers.dispatchEvent('modal-loaded', {instance: this});
 
-        // common elements state
-        this.ui.resize.toggle(this.options.resizable);
-        this.ui.minimizeButton.toggle(this.options.minimizable);
-        this.ui.maximizeButton.toggle(this.options.maximizable);
+    var currentContext = keyboard.getContext();
 
-        var position = this._calculateNewPosition(opts);
-
-        this.ui.maximizeButton.removeClass('cms-modal-maximize-active');
-        this.maximized = false;
-
-        // because a new instance is called, we have to ensure minimized state is removed #3620
-        if (this.ui.body.hasClass('cms-modal-minimized')) {
-            this.minimized = true;
-            this.minimize();
-        }
-
-        // clear elements
-        this.ui.modalButtons.empty();
-        this.ui.breadcrumb.empty();
-
-        // remove class from modal when no breadcrumbs is rendered
-        this.ui.modal.removeClass('cms-modal-has-breadcrumb');
-
-        // hide tooltip
-        CMS.API.Tooltip.hide();
-
-        // redirect to iframe rendering if url is provided
-        if (opts.url) {
-            this._loadIframe({
-                url: opts.url,
-                title: opts.title,
-                breadcrumbs: opts.breadcrumbs
-            });
-        } else {
-            // if url is not provided we go for html
-            this._loadMarkup({
-                html: opts.html,
-                title: opts.title,
-                subtitle: opts.subtitle
-            });
-        }
-
-        Helpers.dispatchEvent('modal-loaded', { instance: this });
-
-        var currentContext = keyboard.getContext();
-
-        if (currentContext !== 'modal') {
-            previousKeyboardContext = keyboard.getContext();
-            previouslyFocusedElement = $(document.activeElement);
-        }
-
-        // display modal
-        this._show(
-            $.extend(
-                {
-                    duration: this.options.modalDuration
-                },
-                position
-            )
-        );
-
-        keyboard.setContext('modal');
-        this.ui.modal.trap();
-
-        return this;
+    if (currentContext !== 'modal') {
+      previousKeyboardContext = keyboard.getContext();
+      previouslyFocusedElement = $(document.activeElement);
     }
 
-    /**
-     * Calculates coordinates and dimensions for modal placement
-     *
-     * @method _calculateNewPosition
-     * @private
-     * @param {Object} [opts]
-     * @param {Number} [opts.width] desired width of the modal
-     * @param {Number} [opts.height] desired height of the modal
-     * @returns {Object}
-     */
-    // eslint-disable-next-line complexity
-    _calculateNewPosition(opts) {
-        // lets set the modal width and height to the size of the browser
-        var widthOffset = 300; // adds margin left and right
-        var heightOffset = 300; // adds margin top and bottom;
-        var screenWidth = this.ui.window.width();
-        var screenHeight = this.ui.window.height();
-        var modalWidth = opts.width || this.options.minWidth;
-        var modalHeight = opts.height || this.options.minHeight;
-        // screen width and height calculation, WC = width
-        var screenWidthCalc = screenWidth >= modalWidth + widthOffset;
-        var screenHeightCalc = screenHeight >= modalHeight + heightOffset;
+    // display modal
+    this._show(
+      $.extend(
+        {
+          duration: this.options.modalDuration
+        },
+        position
+      )
+    );
 
-        var width = screenWidthCalc && !opts.width ? screenWidth - widthOffset : modalWidth;
-        var height = screenHeightCalc && !opts.height ? screenHeight - heightOffset : modalHeight;
+    keyboard.setContext('modal');
+    this.ui.modal.trap();
 
-        var currentLeft = this.ui.modal.css('left');
-        var currentTop = this.ui.modal.css('top');
-        var newLeft;
-        var newTop;
-
-        // jquery made me do it
-        if (currentLeft === '50%') {
-            currentLeft = screenWidth / 2;
-        }
-        if (currentTop === '50%') {
-            currentTop = screenHeight / 2;
-        }
-
-        currentTop = parseInt(currentTop, 10);
-        currentLeft = parseInt(currentLeft, 10);
-
-        // if new width/height go out of the screen - reset position to center of screen
-        if (
-            width / 2 + currentLeft > screenWidth ||
-            height / 2 + currentTop > screenHeight ||
-            currentLeft - width / 2 < 0 ||
-            currentTop - height / 2 < 0
-        ) {
-            newLeft = screenWidth / 2;
-            newTop = screenHeight / 2;
-        }
-
-        // in case, the modal is larger than the window, we trigger fullscreen mode
-        if (width >= screenWidth || height >= screenHeight) {
-            this.triggerMaximized = true;
-        }
-
-        return {
-            width: width,
-            height: height,
-            top: newTop,
-            left: newLeft
-        };
+    return this;
+  */
+  }
+  close(){
+    console.log("Modal: Closing")
+    this.ui.modal.classList.remove("cms-modal-open");
+  }
+  maximize() {
+    console.log("Modal: Maximizing")
+    // cancel action when minimized
+    if (this.minimized) {
+      return false;
     }
 
-    /**
-     * Animation helper for opening the sideframe.
-     *
-     * @method _show
-     * @private
-     * @param {Object} opts
-     * @param {Number} opts.width width of the modal
-     * @param {Number} opts.height height of the modal
-     * @param {Number} opts.left left in px of the center of the modal
-     * @param {Number} opts.top top in px of the center of the modal
-     * @param {Number} opts.duration speed of opening, ms (not really used yet)
-     */
-    _show(opts) {
-        // we need to position the modal in the center
-        var that = this;
-        var width = opts.width;
-        var height = opts.height;
-        var speed = opts.duration;
-        var top = opts.top;
-        var left = opts.left;
+    if (this.maximized === false) {
+      // save initial state
+      // this.ui.modal.data(
+      //   'css',
+      //   this.ui.modal.css(['left', 'top', 'margin-left', 'margin-top', 'width', 'height'])
+      // );
+      this.ui.modal.classList.add("cms-modal-maximized");
 
-        if (this.ui.modal.hasClass('cms-modal-open')) {
-            this.ui.modal.addClass('cms-modal-morphing');
-        }
+      this.maximized = true;
+      //Helpers.dispatchEvent('modal-maximized', {instance: this});
+    } else {
+      // minimize
+      this.ui.modal.classList.remove("cms-modal-maximized");
 
-        this.ui.modal.css({
-            display: 'block',
-            width: width,
-            height: height,
-            top: top,
-            left: left,
-            'margin-left': -(width / 2),
-            'margin-top': -(height / 2)
-        });
-        // setImmediate is required to go into the next frame
-        setTimeout(function() {
-            that.ui.modal.addClass('cms-modal-open');
-        }, 0);
+      //this.ui.modal.css(this.ui.modal.data('css'));
 
-        this.ui.modal
-            .one('cmsTransitionEnd', function() {
-                that.ui.modal.removeClass('cms-modal-morphing');
-                that.ui.modal.css({
-                    'margin-left': -(width / 2),
-                    'margin-top': -(height / 2)
-                });
-
-                // check if we should maximize
-                if (that.triggerMaximized) {
-                    that.maximize();
-                }
-
-                // changed locked status to allow other modals again
-                CMS.API.locked = false;
-                Helpers.dispatchEvent('modal-shown', { instance: that });
-            })
-            .emulateTransitionEnd(speed);
-
-        // add esc close event
-        this.ui.body.off('keydown.cms.close').on('keydown.cms.close', function(e) {
-            if (e.keyCode === KEYS.ESC && that.options.closeOnEsc) {
-                e.stopPropagation();
-                if (that._confirmDirtyEscCancel()) {
-                    that._cancelHandler();
-                }
-            }
-        });
-
-        // set focus to modal
-        this.ui.modal.focus();
+      this.maximized = false;
+      //Helpers.dispatchEvent('modal-restored', {instance: this});
     }
-
-    /**
-     * Closes the current instance.
-     *
-     * @method close
-     * @returns {Boolean|void}
-     */
-    close() {
-        var event = Helpers.dispatchEvent('modal-close', { instance: this });
-
-        if (event.isDefaultPrevented()) {
-            return false;
-        }
-
-        Helpers._getWindow().removeEventListener('beforeunload', this._beforeUnloadHandler);
-
-        // handle refresh option
-        if (this.options.onClose) {
-            Helpers.reloadBrowser(this.options.onClose, false);
-        }
-
-        this._hide({
-            duration: this.options.modalDuration / 2
-        });
-
-        this.ui.modal.untrap();
-        keyboard.setContext(previousKeyboardContext);
-        try {
-            previouslyFocusedElement.focus();
-        } catch (e) {}
-    }
-
-    /**
-     * Animation helper for closing the iframe.
-     *
-     * @method _hide
-     * @private
-     * @param {Object} opts
-     * @param {Number} [opts.duration=this.options.modalDuration] animation duration
-     */
-    _hide(opts) {
-        var that = this;
-        var duration = this.options.modalDuration;
-
-        if (opts && opts.duration) {
-            duration = opts.duration;
-        }
-
-        this.ui.frame.empty();
-        this.ui.modalBody.removeClass('cms-loader');
-        this.ui.modal.removeClass('cms-modal-open');
-        this.ui.modal
-            .one('cmsTransitionEnd', function() {
-                that.ui.modal.css('display', 'none');
-            })
-            .emulateTransitionEnd(duration);
-
-        // reset maximize or minimize states for #3111
-        setTimeout(function() {
-            if (that.minimized) {
-                that.minimize();
-            }
-            if (that.maximized) {
-                that.maximize();
-            }
-            hideLoader();
-            Helpers.dispatchEvent('modal-closed', { instance: that });
-        }, this.options.duration);
-
-        this.ui.body.off('keydown.cms.close');
-    }
-
-    /**
-     * Minimizes the modal onto the toolbar.
-     *
-     * @method minimize
-     * @returns {Boolean|void}
-     */
-    minimize() {
-        var MINIMIZED_OFFSET = 50;
+  }
+  minimize() {
+    console.log("Modal: Minimizing")
+    /*
+            var MINIMIZED_OFFSET = 50;
 
         // cancel action if maximized
         if (this.maximized) {
@@ -472,772 +210,1138 @@ class Modal {
 
             this.minimized = false;
         }
-    }
-
-    /**
-     * Maximizes the window according to the browser size.
-     *
-     * @method maximize
-     * @returns {Boolean|void}
      */
-    maximize() {
-        // cancel action when minimized
-        if (this.minimized) {
-            return false;
-        }
+  }
 
-        if (this.maximized === false) {
-            // save initial state
-            this.ui.modal.data(
-                'css',
-                this.ui.modal.css(['left', 'top', 'margin-left', 'margin-top', 'width', 'height'])
-            );
+  _cleanUiFrameContents() {
+    this.ui.frame.querySelectorAll('*').forEach(n => n.remove());
+  }
 
-            this.ui.body.addClass('cms-modal-maximized');
+  /**
+   * Sets the buttons inside the modal.
+   *
+   * @method _setButtons
+   * @private
+   * @param {jQuery} iframe loaded iframe element
+   */
+  _setButtons(iframe) {
+    console.log("Undress the django internals");
 
-            this.maximized = true;
-            Helpers.dispatchEvent('modal-maximized', { instance: this });
-        } else {
-            // minimize
-            this.ui.body.removeClass('cms-modal-maximized');
-            this.ui.modal.css(this.ui.modal.data('css'));
+    const contents = iframe.contentWindow.document
+    let djangoSuit = contents.querySelectorAll('.suit-columns').length > 0;
+    let that = this;
+    let row;
+    var tmp;
 
-            this.maximized = false;
-            Helpers.dispatchEvent('modal-restored', { instance: this });
-        }
+    let render = document.createElement("div")
+    render.classList.add("cms-modal-buttons-inner");
+
+    if (djangoSuit) {
+      row = contents.querySelector('.save-box');
+    } else {
+      row = contents.querySelector('.submit-row');
     }
+    var form = contents.querySelector('form');
 
-    /**
-     * Initiates the start move event from `_events`.
-     *
-     * @method _startMove
-     * @private
-     * @param {Object} pointerEvent passes starting event
-     * @returns {Boolean|void}
-     */
-    _startMove(pointerEvent) {
-        // cancel if maximized or minimized
-        if (this.maximized || this.minimized) {
-            return false;
-        }
+    // avoids conflict between the browser's form validation and Django's validation
+    form.addEventListener('submit', function () {
+      // default submit button was clicked
+      // meaning, if you have save - it should close the iframe,
+      // if you hit save and continue editing it should be default form behaviour
+      if (that.hideFrame) {
+        that.ui.modal.querySelector('.cms-modal-frame iframe').hide();
+        // page has been saved, run checkup
+        that.saved = true;
+      }
+    });
+    var buttons = row.querySelectorAll('input, a, button');
 
-        var that = this;
-        var position = this.ui.modal.position();
-        var left;
-        var top;
+    /*
 
-        this.ui.shim.show();
-
-        // create event for stopping
-        this.ui.body.on(this.pointerUp, function(e) {
-            that._stopMove(e);
-        });
-
-        this.ui.body
-            .on(this.pointerMove, function(e) {
-                left = position.left - (pointerEvent.originalEvent.pageX - e.originalEvent.pageX);
-                top = position.top - (pointerEvent.originalEvent.pageY - e.originalEvent.pageY);
-
-                that.ui.modal.css({
-                    left: left,
-                    top: top
-                });
-            })
-            .attr('data-touch-action', 'none');
+    // these are the buttons _inside_ the iframe
+    // we need to listen to this click event to support submitting
+    // a form by pressing enter inside of a field
+    // click is actually triggered by submit
+    buttons.on('click', function () {
+      if ($(this).hasClass('default')) {
+        that.hideFrame = true;
+      }
+    });
+    */
+    // hide all submit-rows
+    contents.querySelector('.submit-row').style.display = "none";
+    /*
+    // if there are no given buttons within the submit-row area
+    // scan deeper within the form itself
+    // istanbul ignore next
+    if (!buttons.length) {
+      row = iframe.contents().find('body:not(.change-list) #content form:eq(0)');
+      buttons = row.find('input[type="submit"], button[type="submit"]');
+      buttons.addClass('deletelink').hide();
     }
+    */
 
-    /**
-     * Initiates the stop move event from `_startMove`.
-     *
-     * @method _stopMove
-     * @private
-     */
-    _stopMove() {
-        this.ui.shim.hide();
-        this.ui.body.off(this.pointerMove + ' ' + this.pointerUp).removeAttr('data-touch-action');
-    }
+    // loop over input buttons
+    buttons.forEach(function (item, index) {
+      let buttonWrapper = document.createElement("div")
+      buttonWrapper.classList.add("cms-modal-item-buttons");
 
-    /**
-     * Initiates the start resize event from `_events`.
-     *
-     * @method _startResize
-     * @private
-     * @param {Object} pointerEvent passes starting event
-     * @returns {Boolean|void}
-     */
-    _startResize(pointerEvent) {
-        // cancel if in fullscreen
-        if (this.maximized) {
-            return false;
-        }
-        // continue
-        var that = this;
-        var width = this.ui.modal.width();
-        var height = this.ui.modal.height();
-        var modalLeft = this.ui.modal.position().left;
-        var modalTop = this.ui.modal.position().top;
+      item.setAttribute('data-rel', '_' + index);
 
-        // create event for stopping
-        this.ui.body.on(this.pointerUp, function(e) {
-            that._stopResize(e);
-        });
+      // cancel if item is a hidden input
+      if (item.getAttribute('type') === 'hidden') {
+        return false;
+      }
 
-        this.ui.shim.show();
+      let title = item.getAttribute('value') || item.innerText;
 
-        this.ui.body
-            .on(this.pointerMove, function(e) {
-                var mvX = pointerEvent.originalEvent.pageX - e.originalEvent.pageX;
-                var mvY = pointerEvent.originalEvent.pageY - e.originalEvent.pageY;
-                var w = width - mvX * 2;
-                var h = height - mvY * 2;
-                var wMin = that.options.minWidth;
-                var hMin = that.options.minHeight;
-                var left = mvX + modalLeft;
-                var top = mvY + modalTop;
+      if (item.tagName === 'button') {
+        title = item.innerText;
+      }
 
-                // add some limits
-                if (w <= wMin) {
-                    w = wMin;
-                    left = modalLeft + width / 2 - w / 2;
-                }
-                if (h <= hMin) {
-                    h = hMin;
-                    top = modalTop + height / 2 - h / 2;
-                }
+      let cls = 'cms-btn';
+      // set additional special css classes
+      if (item.classList.contains('default')) {
+        cls = 'cms-btn cms-btn-action';
+      }
+      if (item.classList.contains('deletelink')) {
+        cls = 'cms-btn cms-btn-caution';
+      }
 
-                // set centered animation
-                that.ui.modal.css({
-                    width: w,
-                    height: h,
-                    left: left,
-                    top: top
-                });
-            })
-            .attr('data-touch-action', 'none');
-    }
+      // FIXME: Was el
+      buttonWrapper.innerHTML = '<a href="#" class="' + cls + ' ' + item.getAttribute('class') + '">' + title + '</a>';
 
-    /**
-     * Initiates the stop resize event from `_startResize`.
-     *
-     * @method _stopResize
-     * @private
-     */
-    _stopResize() {
-        this.ui.shim.hide();
-        this.ui.body.off(this.pointerMove + ' ' + this.pointerUp).removeAttr('data-touch-action');
-    }
+      /*
+      el.on(that.click + ' ' + that.touchEnd, function (e) {
+        e.preventDefault();
 
-    /**
-     * Sets the breadcrumb inside the modal.
-     *
-     * @method _setBreadcrumb
-     * @private
-     * @param {Object[]} breadcrumbs renderes breadcrumb on modal
-     * @returns {Boolean|void}
-     */
-    _setBreadcrumb(breadcrumbs) {
-        var crumb = '';
-        var template = '<a href="{1}" class="{2}"><span>{3}</span></a>';
-
-        // cancel if there is no breadcrumbs)
-        if (!breadcrumbs || breadcrumbs.length <= 1) {
-            return false;
-        }
-        if (!breadcrumbs[0].title) {
-            return false;
+        if (item.is('a')) {
+          that._loadIframe({
+            url: Helpers.updateUrlWithPath(item.prop('href')),
+            name: title
+          });
         }
 
-        // add class to modal
-        this.ui.modal.addClass('cms-modal-has-breadcrumb');
-
-        // load breadcrumbs
-        $.each(breadcrumbs, function(index, item) {
-            // check if the item is the last one
-            var last = index >= breadcrumbs.length - 1 ? 'active' : '';
-
-            // render breadcrumbs
-            crumb += template.replace('{1}', item.url).replace('{2}', last).replace('{3}', item.title);
-        });
-
-        // attach elements
-        this.ui.breadcrumb.html(crumb);
-    }
-
-    /**
-     * Sets the buttons inside the modal.
-     *
-     * @method _setButtons
-     * @private
-     * @param {jQuery} iframe loaded iframe element
-     */
-    _setButtons(iframe) {
-        var djangoSuit = iframe.contents().find('.suit-columns').length > 0;
-        var that = this;
-        var group = $('<div class="cms-modal-item-buttons"></div>');
-        var render = $('<div class="cms-modal-buttons-inner"></div>');
-        var cancel = $('<a href="#" class="cms-btn">' + CMS.config.lang.cancel + '</a>');
-        var row;
-        var tmp;
-
-        // istanbul ignore if
-        if (djangoSuit) {
-            row = iframe.contents().find('.save-box:eq(0)');
-        } else {
-            row = iframe.contents().find('.submit-row:eq(0)');
-        }
-        var form = iframe.contents().find('form');
-
-        // avoids conflict between the browser's form validation and Django's validation
-        form.on('submit', function() {
-            // default submit button was clicked
-            // meaning, if you have save - it should close the iframe,
-            // if you hit save and continue editing it should be default form behaviour
-            if (that.hideFrame) {
-                that.ui.modal.find('.cms-modal-frame iframe').hide();
-                // page has been saved, run checkup
-                that.saved = true;
-            }
-        });
-        var buttons = row.find('input, a, button');
-
-        // these are the buttons _inside_ the iframe
-        // we need to listen to this click event to support submitting
-        // a form by pressing enter inside of a field
-        // click is actually triggered by submit
-        buttons.on('click', function() {
-            if ($(this).hasClass('default')) {
-                that.hideFrame = true;
-            }
-        });
-
-        // hide all submit-rows
-        iframe.contents().find('.submit-row').hide();
-
-        // if there are no given buttons within the submit-row area
-        // scan deeper within the form itself
-        // istanbul ignore next
-        if (!buttons.length) {
-            row = iframe.contents().find('body:not(.change-list) #content form:eq(0)');
-            buttons = row.find('input[type="submit"], button[type="submit"]');
-            buttons.addClass('deletelink').hide();
-        }
-
-        // loop over input buttons
-        buttons.each(function(index, btn) {
-            var item = $(btn);
-
-            item.attr('data-rel', '_' + index);
-
-            // cancel if item is a hidden input
-            if (item.attr('type') === 'hidden') {
-                return false;
-            }
-
-            var title = item.attr('value') || item.text();
-            var cls = 'cms-btn';
-
-            if (item.is('button')) {
-                title = item.text();
-            }
-
-            // set additional special css classes
-            if (item.hasClass('default')) {
-                cls = 'cms-btn cms-btn-action';
-            }
+        // trigger only when blue action buttons are triggered
+        if (item.hasClass('default') || item.hasClass('deletelink')) {
+          // hide iframe when using buttons other than submit
+          if (item.hasClass('default')) {
+            // submit button uses the form's submit event
+            that.hideFrame = true;
+          } else {
+            that.ui.modal.find('.cms-modal-frame iframe').hide();
+            // page has been saved or deleted, run checkup
+            that.saved = true;
             if (item.hasClass('deletelink')) {
-                cls = 'cms-btn cms-btn-caution';
+              that.justDeleted = true;
+
+              var action = item.closest('form').prop('action');
+
+              // in case action is an input (see https://github.com/jquery/jquery/issues/3691)
+              // it's definitely not a plugin/placeholder deletion
+              if (typeof action === 'string' && action.match(/delete-plugin/)) {
+                that.justDeletedPlugin = /delete-plugin\/(\d+)\//gi.exec(action)[1];
+              }
+              if (typeof action === 'string' && action.match(/clear-placeholder/)) {
+                that.justDeletedPlaceholder = /clear-placeholder\/(\d+)\//gi.exec(action)[1];
+              }
             }
+          }
+        }
 
-            var el = $('<a href="#" class="' + cls + ' ' + item.attr('class') + '">' + title + '</a>');
+        if (item.is('input') || item.is('button')) {
+          that.ui.modalBody.addClass('cms-loader');
+          var frm = item.closest('form');
 
-            // eslint-disable-next-line complexity
-            el.on(that.click + ' ' + that.touchEnd, function(e) {
-                e.preventDefault();
+          // In Firefox with 1Password extension installed (FF 45 1password 4.5.6 at least)
+          // the item[0].click() doesn't work, which notably breaks
+          // deletion of the plugin. Workaround is that if the clicked button
+          // is the only button in the form - submit a form, otherwise
+          // click on the button
+          if (frm.find('button, input[type="button"], input[type="submit"]').length > 1) {
+            // we need to use native `.click()` event specifically
+            // as we are inside an iframe and magic is happening
+            item[0].click();
+          } else {
+            // have to dispatch native submit event so all the submit handlers
+            // can be fired, see #5590
+            var evt = document.createEvent('HTMLEvents');
 
-                if (item.is('a')) {
-                    that._loadIframe({
-                        url: Helpers.updateUrlWithPath(item.prop('href')),
-                        name: title
-                    });
-                }
+            evt.initEvent('submit', false, true);
+            if (frm[0].dispatchEvent(evt)) {
+              // triggering submit event in webkit based browsers won't
+              // actually submit the form, while in Gecko-based ones it
+              // will and calling frm.submit() would throw NS_ERROR_UNEXPECTED
+              try {
+                frm[0].submit();
+              } catch (err) {
+              }
+            }
+          }
+        }
+      });
+      */
 
-                // trigger only when blue action buttons are triggered
-                if (item.hasClass('default') || item.hasClass('deletelink')) {
-                    // hide iframe when using buttons other than submit
-                    if (item.hasClass('default')) {
-                        // submit button uses the form's submit event
-                        that.hideFrame = true;
-                    } else {
-                        that.ui.modal.find('.cms-modal-frame iframe').hide();
-                        // page has been saved or deleted, run checkup
-                        that.saved = true;
-                        if (item.hasClass('deletelink')) {
-                            that.justDeleted = true;
+      // append element
+      render.append(buttonWrapper);
+    });
 
-                            var action = item.closest('form').prop('action');
+    let cancelButtonWrapper = document.createElement("div")
+    cancelButtonWrapper.classList.add("cms-modal-item-buttons");
 
-                            // in case action is an input (see https://github.com/jquery/jquery/issues/3691)
-                            // it's definitely not a plugin/placeholder deletion
-                            if (typeof action === 'string' && action.match(/delete-plugin/)) {
-                                that.justDeletedPlugin = /delete-plugin\/(\d+)\//gi.exec(action)[1];
-                            }
-                            if (typeof action === 'string' && action.match(/clear-placeholder/)) {
-                                that.justDeletedPlaceholder = /clear-placeholder\/(\d+)\//gi.exec(action)[1];
-                            }
-                        }
-                    }
-                }
-
-                if (item.is('input') || item.is('button')) {
-                    that.ui.modalBody.addClass('cms-loader');
-                    var frm = item.closest('form');
-
-                    // In Firefox with 1Password extension installed (FF 45 1password 4.5.6 at least)
-                    // the item[0].click() doesn't work, which notably breaks
-                    // deletion of the plugin. Workaround is that if the clicked button
-                    // is the only button in the form - submit a form, otherwise
-                    // click on the button
-                    if (frm.find('button, input[type="button"], input[type="submit"]').length > 1) {
-                        // we need to use native `.click()` event specifically
-                        // as we are inside an iframe and magic is happening
-                        item[0].click();
-                    } else {
-                        // have to dispatch native submit event so all the submit handlers
-                        // can be fired, see #5590
-                        var evt = document.createEvent('HTMLEvents');
-
-                        evt.initEvent('submit', false, true);
-                        if (frm[0].dispatchEvent(evt)) {
-                            // triggering submit event in webkit based browsers won't
-                            // actually submit the form, while in Gecko-based ones it
-                            // will and calling frm.submit() would throw NS_ERROR_UNEXPECTED
-                            try {
-                                frm[0].submit();
-                            } catch (err) {}
-                        }
-                    }
-                }
-            });
-            el.wrap(group);
-
-            // append element
-            render.append(el.parent());
-        });
-
-        // manually add cancel button at the end
-        cancel.on(that.click, function(e) {
-            e.preventDefault();
-            that._cancelHandler();
-        });
-        cancel.wrap(group);
-        render.append(cancel.parent());
-
-        // prepare groups
-        render.find('.cms-btn-group').unwrap();
-        tmp = render.find('.cms-btn-group').clone(true, true);
-        render.find('.cms-btn-group').remove();
-        render.append(tmp.wrapAll(group.clone().addClass('cms-modal-item-buttons-left')).parent());
-
-        // render buttons
-        this.ui.modalButtons.html(render);
-    }
-
-    /**
-     * Version where the modal loads an iframe.
-     *
-     * @method _loadIframe
-     * @private
-     * @param {Object} opts
-     * @param {String} opts.url url to render iframe, takes presedence over opts.html
-     * @param {Object[]} [opts.breadcrumbs] collection of breadcrumb items
-     * @param {String} [opts.title] modal window main title (bold)
+    // FIXME: The cancel button used CMS.config.lang.cancel for the button text
+    let cancel = document.createElement("a")
+    cancel.href = "#";
+    cancel.class = "cms-btn";
+    cancel.textContent = "Cancel"
+    cancelButtonWrapper.append(cancel);
+    /*
+    // manually add cancel button at the end
+    cancel.on(that.click, function (e) {
+      e.preventDefault();
+      that._cancelHandler();
+    });
      */
-    _loadIframe(opts) {
-        var that = this;
-        const SHOW_LOADER_TIMEOUT = 500;
+    render.append(cancelButtonWrapper);
 
-        opts.url = Helpers.makeURL(opts.url);
-        opts.title = opts.title || '';
-        opts.breadcrumbs = opts.breadcrumbs || '';
+    /*
+    // prepare groups
+    render.find('.cms-btn-group').unwrap();
+    tmp = render.find('.cms-btn-group').clone(true, true);
+    render.find('.cms-btn-group').remove();
+    render.append(tmp.wrapAll(group.clone().addClass('cms-modal-item-buttons-left')).parent());
+     */
+    // render buttons
+    this.ui.modalButtons.append(render);
+  }
 
+  _loadIframe(opts) {
+    const that = this;
+    const SHOW_LOADER_TIMEOUT = 500;
+
+    //opts.url = Helpers.makeURL(opts.url);
+    opts.title = opts.title || '';
+    opts.breadcrumbs = opts.breadcrumbs || '';
+
+    //showLoader();
+
+    // set classes
+    this.ui.modal.classList.remove('cms-modal-markup');
+    this.ui.modal.classList.add('cms-modal-iframe');
+
+    // we need to render the breadcrumb
+    //this._setBreadcrumb(opts.breadcrumbs);
+
+    // now refresh the content
+    let iframe = document.createElement("iframe")
+    iframe.setAttribute('tabindex', "0");
+    iframe.setAttribute('src', opts.url);
+    iframe.setAttribute('frameborder', "0");
+
+    this.ui.frame.appendChild(iframe)
+
+    // set correct title
+    const titlePrefix = this.ui.titlePrefix;
+    const titleSuffix = this.ui.titleSuffix;
+
+    //iframe.style.visibility = 'hidden';
+    titlePrefix.textContent = opts.title || '';
+    titleSuffix.textContent = '';
+
+    // ensure previous iframe is hidden
+    this.ui.frame.style.visibility = 'hidden';
+    //const loaderTimeout = setTimeout(() => that.ui.modalBody.addClass('cms-loader'), SHOW_LOADER_TIMEOUT);
+
+    // attach load event for iframe to prevent flicker effects
+    // eslint-disable-next-line complexity
+    iframe.addEventListener('load', function () {
+      //clearTimeout(loaderTimeout);
+
+      let messages;
+      let messageList;
+      let contents;
+      let body;
+      let innerTitle;
+      let bc;
+
+      // check if iframe can be accessed
+      try {
+        contents = iframe.contentWindow.document;
+        body = contents.body
+      } catch (error) {
+        console.log("Error loading the form", error);
+        /*
+        CMS.API.Messages.open({
+          message: '<strong>' + CMS.config.lang.errorLoadingEditForm + '</strong>',
+          error: true,
+          delay: 0
+        });
+        */
+        that.close();
+        return;
+      }
+
+      // tabindex is required for keyboard navigation
+      body.setAttribute('tabindex', "0");
+      iframe.addEventListener('focus', function () {
+        if (this.contentWindow) {
+          this.contentWindow.focus();
+        }
+      });
+      /*
+
+      Modal._setupCtrlEnterSave(document);
+
+      if (iframe[0].contentWindow && iframe[0].contentWindow.document) {
+        Modal._setupCtrlEnterSave(iframe[0].contentWindow.document);
+      }
+      // for ckeditor we need to go deeper
+      // istanbul ignore next
+      if (iframe[0].contentWindow && iframe[0].contentWindow.CMS && iframe[0].contentWindow.CMS.CKEditor) {
+        $(iframe[0].contentWindow.document).ready(function () {
+          // setTimeout is required to battle CKEditor initialisation
+          setTimeout(function () {
+            var editor = iframe[0].contentWindow.CMS.CKEditor.editor;
+
+            if (editor) {
+              editor.on('instanceReady', function (e) {
+                Modal._setupCtrlEnterSave(
+                  $(e.editor.container.$).find('iframe')[0].contentWindow.document
+                );
+              });
+            }
+          }, 100); // eslint-disable-line
+        });
+      }
+      */
+
+      var saveSuccess = Boolean(contents.querySelectorAll('.messagelist :not(.error)').length);
+
+      // in case message didn't appear, assume that admin page is actually a success
+      if (!saveSuccess) {
+        saveSuccess =
+          Boolean(contents.querySelectorAll('.dashboard #content-main').length) &&
+          !contents.querySelectorAll('.messagelist .error').length;
+      }
+      /*
+      // show messages in toolbar if provided
+      messageList = contents.find('.messagelist');
+      messages = messageList.find('li');
+      if (messages.length) {
+        CMS.API.Messages.open({
+          message: messages.eq(0).html()
+        });
+      }
+      messageList.remove();
+       */
+
+      // inject css class
+      body.classList.add('cms-admin');
+      body.classList.add('cms-admin-modal');
+
+      /*
+      // hide loaders
+      that.ui.modalBody.removeClass('cms-loader');
+      hideLoader();
+
+      // determine if we should close the modal or reload
+      if (messages.length && that.enforceReload) {
+        that.ui.modalBody.addClass('cms-loader');
         showLoader();
+        Helpers.reloadBrowser();
+      }
+      if (messages.length && that.enforceClose) {
+        that.close();
+        return false;
+      }
+      */
 
-        // set classes
-        this.ui.modal.removeClass('cms-modal-markup');
-        this.ui.modal.addClass('cms-modal-iframe');
+      // adding django hacks
+      contents.querySelectorAll('.viewsitelink').forEach(function (link) {
+        link.setAttribute('target', '_top');
+      });
 
-        // we need to render the breadcrumb
-        this._setBreadcrumb(opts.breadcrumbs);
+      // set modal buttons
+      that._setButtons(iframe);
 
-        // now refresh the content
-        var holder = this.ui.frame;
-        var iframe = $('<iframe tabindex="0" src="' + opts.url + '" class="" frameborder="0" />');
+      // when an error occurs, reset the saved status so the form can be checked and validated again
+      if (
+        contents.querySelectorAll('.errornote').length ||
+        contents.querySelectorAll('.errorlist').length ||
+        (that.saved && !saveSuccess)
+      ) {
+        that.saved = false;
+      }
 
-        // set correct title
-        var titlePrefix = this.ui.titlePrefix;
-        var titleSuffix = this.ui.titleSuffix;
+      // when the window has been changed pressing the blue or red button, we need to run a reload check
+      // also check that no delete-confirmation is required
+      if (that.saved && saveSuccess && !contents.querySelectorAll('.delete-confirmation').length) {
 
-        iframe.css('visibility', 'hidden');
-        titlePrefix.text(opts.title || '');
-        titleSuffix.text('');
-
-        // ensure previous iframe is hidden
-        holder.find('iframe').css('visibility', 'hidden');
-        const loaderTimeout = setTimeout(() => that.ui.modalBody.addClass('cms-loader'), SHOW_LOADER_TIMEOUT);
-
-        // attach load event for iframe to prevent flicker effects
-        // eslint-disable-next-line complexity
-        iframe.on('load', function() {
-            clearTimeout(loaderTimeout);
-            var messages;
-            var messageList;
-            var contents;
-            var body;
-            var innerTitle;
-            var bc;
-
-            // check if iframe can be accessed
-            try {
-                contents = iframe.contents();
-                body = contents.find('body');
-            } catch (error) {
-                CMS.API.Messages.open({
-                    message: '<strong>' + CMS.config.lang.errorLoadingEditForm + '</strong>',
-                    error: true,
-                    delay: 0
-                });
-                that.close();
-                return;
-            }
-
-            // tabindex is required for keyboard navigation
-            // body.attr('tabindex', '0');
-            iframe.on('focus', function() {
-                if (this.contentWindow) {
-                    this.contentWindow.focus();
+        /*
+        that.ui.modalBody.addClass('cms-loader');
+        if (that.options.onClose) {
+          showLoader();
+          Helpers.reloadBrowser(
+            that.options.onClose ? that.options.onClose : window.location.href,
+            false,
+            true
+          );
+        } else {
+          setTimeout(function () {
+            if (that.justDeleted && (that.justDeletedPlugin || that.justDeletedPlaceholder)) {
+              CMS.API.StructureBoard.invalidateState(
+                that.justDeletedPlaceholder ? 'CLEAR_PLACEHOLDER' : 'DELETE',
+                {
+                  plugin_id: that.justDeletedPlugin,
+                  placeholder_id: that.justDeletedPlaceholder,
+                  deleted: true
                 }
-            });
-
-            Modal._setupCtrlEnterSave(document);
-            // istanbul ignore else
-            if (iframe[0].contentWindow && iframe[0].contentWindow.document) {
-                Modal._setupCtrlEnterSave(iframe[0].contentWindow.document);
+              );
             }
-            // for ckeditor we need to go deeper
-            // istanbul ignore next
-            if (iframe[0].contentWindow && iframe[0].contentWindow.CMS && iframe[0].contentWindow.CMS.CKEditor) {
-                $(iframe[0].contentWindow.document).ready(function() {
-                    // setTimeout is required to battle CKEditor initialisation
-                    setTimeout(function() {
-                        var editor = iframe[0].contentWindow.CMS.CKEditor.editor;
+            // hello ckeditor
+            Helpers.removeEventListener('modal-close.text-plugin');
+            that.close();
+            // must be more than 100ms
+          }, 150); // eslint-disable-line
+        }
+        */
+      } else {
+        /*
+        iframe.show();
+        */
+        // set title of not provided
+        innerTitle = contents.querySelectorAll('#content h1')[0];
+        /*
+        // case when there is no prefix
+        // istanbul ignore next: never happens
+        if (opts.title === undefined && that.ui.titlePrefix.text() === '') {
+          bc = contents.find('.breadcrumbs').contents();
+          that.ui.titlePrefix.text(bc.eq(bc.length - 1).text().replace('›', '').trim());
+        }
+        */
+        if (titlePrefix.textContent.trim() === '') {
+          titlePrefix.textContent = innerTitle.textContent;
+        } else {
+          titleSuffix.textContent = innerTitle.textContent;
+        }
+        innerTitle.remove();
 
-                        if (editor) {
-                            editor.on('instanceReady', function(e) {
-                                Modal._setupCtrlEnterSave(
-                                    $(e.editor.container.$).find('iframe')[0].contentWindow.document
-                                );
-                            });
-                        }
-                    }, 100); // eslint-disable-line
-                });
+        // than show
+        that.ui.frame.style.visibility = 'visible';
+
+        /*
+        // append ready state
+        iframe.data('ready', true);
+
+        // attach close event
+        body.on('keydown.cms', function (e) {
+          if (e.keyCode === KEYS.ESC && that.options.closeOnEsc) {
+            e.stopPropagation();
+            if (that._confirmDirtyEscCancel()) {
+              that._cancelHandler();
             }
-
-            var saveSuccess = Boolean(contents.find('.messagelist :not(".error")').length);
-
-            // in case message didn't appear, assume that admin page is actually a success
-            // istanbul ignore if
-            if (!saveSuccess) {
-                saveSuccess =
-                    Boolean(contents.find('.dashboard #content-main').length) &&
-                    !contents.find('.messagelist .error').length;
-            }
-
-            // show messages in toolbar if provided
-            messageList = contents.find('.messagelist');
-            messages = messageList.find('li');
-            if (messages.length) {
-                CMS.API.Messages.open({
-                    message: messages.eq(0).html()
-                });
-            }
-            messageList.remove();
-
-            // inject css class
-            body.addClass('cms-admin cms-admin-modal');
-
-            // hide loaders
-            that.ui.modalBody.removeClass('cms-loader');
-            hideLoader();
-
-            // determine if we should close the modal or reload
-            if (messages.length && that.enforceReload) {
-                that.ui.modalBody.addClass('cms-loader');
-                showLoader();
-                Helpers.reloadBrowser();
-            }
-            if (messages.length && that.enforceClose) {
-                that.close();
-                return false;
-            }
-
-            // adding django hacks
-            contents.find('.viewsitelink').attr('target', '_top');
-
-            // set modal buttons
-            that._setButtons($(this));
-
-            // when an error occurs, reset the saved status so the form can be checked and validated again
-            if (
-                contents.find('.errornote').length ||
-                contents.find('.errorlist').length ||
-                (that.saved && !saveSuccess)
-            ) {
-                that.saved = false;
-            }
-
-            // when the window has been changed pressing the blue or red button, we need to run a reload check
-            // also check that no delete-confirmation is required
-            if (that.saved && saveSuccess && !contents.find('.delete-confirmation').length) {
-                that.ui.modalBody.addClass('cms-loader');
-                if (that.options.onClose) {
-                    showLoader();
-                    Helpers.reloadBrowser(
-                        that.options.onClose ? that.options.onClose : window.location.href,
-                        false,
-                        true
-                    );
-                } else {
-                    setTimeout(function() {
-                        if (that.justDeleted && (that.justDeletedPlugin || that.justDeletedPlaceholder)) {
-                            CMS.API.StructureBoard.invalidateState(
-                                that.justDeletedPlaceholder ? 'CLEAR_PLACEHOLDER' : 'DELETE',
-                                {
-                                    plugin_id: that.justDeletedPlugin,
-                                    placeholder_id: that.justDeletedPlaceholder,
-                                    deleted: true
-                                }
-                            );
-                        }
-                        // hello ckeditor
-                        Helpers.removeEventListener('modal-close.text-plugin');
-                        that.close();
-                    // must be more than 100ms
-                    }, 150); // eslint-disable-line
-                }
-            } else {
-                iframe.show();
-                // set title of not provided
-                innerTitle = contents.find('#content h1:eq(0)');
-
-                // case when there is no prefix
-                // istanbul ignore next: never happens
-                if (opts.title === undefined && that.ui.titlePrefix.text() === '') {
-                    bc = contents.find('.breadcrumbs').contents();
-                    that.ui.titlePrefix.text(bc.eq(bc.length - 1).text().replace('›', '').trim());
-                }
-
-                if (titlePrefix.text().trim() === '') {
-                    titlePrefix.text(innerTitle.text());
-                } else {
-                    titleSuffix.text(innerTitle.text());
-                }
-                innerTitle.remove();
-
-                // than show
-                iframe.css('visibility', 'visible');
-
-                // append ready state
-                iframe.data('ready', true);
-
-                // attach close event
-                body.on('keydown.cms', function(e) {
-                    if (e.keyCode === KEYS.ESC && that.options.closeOnEsc) {
-                        e.stopPropagation();
-                        if (that._confirmDirtyEscCancel()) {
-                            that._cancelHandler();
-                        }
-                    }
-                });
-
-                // figure out if .object-tools is available
-                if (contents.find('.object-tools').length) {
-                    contents.find('#content').css('padding-top', 38); // eslint-disable-line
-                }
-
-                // this is required for IE11. we assume that when the modal is opened the user is going to interact
-                // with it. if we don't focus the body directly the next time the user clicks on a field inside
-                // the iframe the focus will be stolen by body thus requiring two clicks. this immediately focuses the
-                // iframe body on load except if something is already focused there
-                // (django tries to focus first field by default)
-                setTimeout(() => {
-                    if (!iframe[0] || !iframe[0].contentDocument || !iframe[0].contentDocument.documentElement) {
-                        return;
-                    }
-                    if ($(iframe[0].contentDocument.documentElement).find(':focus').length) {
-                        return;
-                    }
-                    iframe.trigger('focus');
-                }, 0); // eslint-disable-line
-            }
-
-            that._attachContentPreservingHandlers(iframe);
+          }
         });
 
-        // inject
-        holder.html(iframe);
-    }
-
-    /**
-     * Adds handlers to prevent accidental refresh / modal close
-     * that could lead to loss of data.
-     *
-     * @method _attachContentPreservingHandlers
-     * @private
-     * @param {jQuery} iframe
-     */
-    _attachContentPreservingHandlers(iframe) {
-        var that = this;
-
-        that.tracker = new ChangeTracker(iframe);
-
-        Helpers._getWindow().addEventListener('beforeunload', this._beforeUnloadHandler);
-    }
-
-    /**
-     * @method _beforeUnloadHandler
-     * @private
-     * @param {Event} e
-     * @returns {String|void}
-     */
-    _beforeUnloadHandler(e) {
-        if (this.tracker.isFormChanged()) {
-            e.returnValue = CMS.config.lang.confirmDirty;
-            return e.returnValue;
+        // figure out if .object-tools is available
+        if (contents.find('.object-tools').length) {
+          contents.find('#content').css('padding-top', 38); // eslint-disable-line
         }
-    }
+        */
+      }
+      /*
+      that._attachContentPreservingHandlers(iframe);
+      */
+    });
 
-    /**
-     * Similar functionality as in `_attachContentPreservingHandlers` but for canceling
-     * the modal with the ESC button.
-     *
-     * @method _confirmDirtyEscCancel
-     * @private
-     * @returns {Boolean}
-     */
-    _confirmDirtyEscCancel() {
-        if (this.tracker && this.tracker.isFormChanged()) {
-            return Helpers.secureConfirm(CMS.config.lang.confirmDirty + '\n\n' + CMS.config.lang.confirmDirtyESC);
+    /*
+    // inject
+    this.ui.frame.html(iframe);
+    */
+
+  }
+  attributeChangedCallback(name, oldValue, newValue) {
+
+  }
+  connectedCallback () {
+    this.attachShadow({mode: 'open'});
+    this.render()
+
+    this._initUI()
+    this._initEventListeners()
+  }
+  render() {
+    this.shadowRoot.innerHTML = `
+      <style>
+        .modal {
+          display: block;
+          position: fixed;
+          z-index: 3000;
+          padding-top: 100px;
+          left: 0;
+          top: 0;
+          width: 100%;
+          height: 100%;
+          overflow: auto;
+          background-color: rgb(0,0,0);
+          background-color: rgba(0,0,0,0.4);
+          font-family: Verdana,sans-serif;
+          font-size: 15px;
+          line-height: 1.5;
         }
-        return true;
-    }
-
-    /**
-     * Version where the modal loads an url within an iframe.
-     *
-     * @method _changeIframe
-     * @private
-     * @param {jQuery} el originated element
-     * @returns {Boolean|void}
-     */
-    _changeIframe(el) {
-        if (el.hasClass('active')) {
-            return false;
+        .modal-content {
+          background-color: #fefefe;
+          margin: auto;
+          width: 95%;
+          max-width:768px;
         }
+        #mydivheader {
+          padding: 10px;
+          z-index: 10;
+          background-color: #2196F3;
+          color: #fff;
+        }
+        #container{
+          padding: 20px;
+        }
+        .btn, .button {
+          border: none;
+          display: inline-block;
+          padding: 8px 16px;
+          vertical-align: middle;
+          overflow: hidden;
+          text-decoration: none;
+          color: inherit;
+          background-color: inherit;
+          text-align: center;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .btn, .button {
+          -webkit-touch-callout: none;
+          -webkit-user-select: none;
+          -khtml-user-select: none;
+          -moz-user-select: none;
+          -ms-user-select: none;
+          user-select: none;
+        }
+        .display-topright {
+          position: relative;
+          right: -9px;
+          top: -33px;
+          float: right;
+        }
+        @media (max-width:768px){
+          .modal{
+            padding-top:50px;
+          }
+        }
+        .animate-top{
+          position:relative;
+          animation:animatetop 0.4s;
+        }
+        @keyframes animatetop{
+          from{top:-300px;opacity:0}
+          to{top:0;opacity:1}
+        }
+        
+        
+        
+.cms-modal-item-buttons .cms-btn {
+  text-align: center
+}
 
-        var parents = el.parent().find('a');
 
-        parents.removeClass('active');
-        el.addClass('active');
-        this._loadIframe({
-            url: el.attr('href')
-        });
-        this.ui.titlePrefix.text(el.text());
-    }
+.cms-modal-item-buttons, .cms-toolbar-item-buttons {
+    margin: 8px 0 8px
+}
 
-    /**
-     * Version where the modal loads html markup.
-     *
-     * @method _loadMarkup
-     * @private
-     * @param {Object} opts
-     * @param {String|HTMLNode|jQuery} opts.html html markup to render
-     * @param {String} opts.title modal window main title (bold)
-     * @param {String} [opts.subtitle] modal window secondary title (normal)
-     */
-    _loadMarkup(opts) {
-        this.ui.modal.removeClass('cms-modal-iframe');
-        this.ui.modal.addClass('cms-modal-markup');
-        this.ui.modalBody.removeClass('cms-loader');
+.cms-modal-item-buttons a, .cms-toolbar-item-buttons a {
+    float: left;
+    line-height: 30px;
+    height: 30px;
+    font-size: 12px;
+    padding: 0 12px
+}
 
-        // set content
-        // empty to remove events, append to keep events
-        this.ui.frame.empty().append(opts.html);
-        this.ui.titlePrefix.text(opts.title || '');
-        this.ui.titleSuffix.text(opts.subtitle || '');
-    }
+.cms-modal-item-buttons a:first-child, .cms-toolbar-item-buttons a:first-child {
+    border-radius: 3px 0 0 3px
+}
 
-    /**
-     * Called whenever default modal action is canceled.
-     *
-     * @method _cancelHandler
-     * @private
-     */
-    _cancelHandler() {
-        this.options.onClose = null;
-        this.close();
-    }
+.cms-modal-item-buttons a:last-child, .cms-toolbar-item-buttons a:last-child {
+    margin-left: -1px;
+    border-radius: 0 3px 3px 0
+}
 
-    /**
-     * Sets up keyup/keydown listeners so you're able to save whatever you're
-     * editing inside of an iframe by pressing `ctrl + enter` on windows and `cmd + enter` on mac.
-     *
-     * It only works with default button (e.g. action), not the `delete` button,
-     * even though sometimes it's the only actionable button in the modal.
-     *
-     * @method _setupCtrlEnterSave
-     * @private
-     * @static
-     * @param {HTMLElement} doc document element (iframe or parent window);
-     */
-    static _setupCtrlEnterSave(doc) {
-        var cmdPressed = false;
-        var mac = navigator.platform.toLowerCase().indexOf('mac') + 1;
+.cms-modal-item-buttons a:only-child, .cms-toolbar-item-buttons a:only-child {
+    border-radius: 3px
+}
 
-        $(doc)
-            .on('keydown.cms.submit', function(e) {
-                if (e.ctrlKey && e.keyCode === KEYS.ENTER && !mac) {
-                    $('.cms-modal-buttons .cms-btn-action:first').trigger('click');
-                }
 
-                if (mac) {
-                    if (e.keyCode === KEYS.CMD_LEFT || e.keyCode === KEYS.CMD_RIGHT || e.keyCode === KEYS.CMD_FIREFOX) {
-                        cmdPressed = true;
-                    }
+.cms-modal {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    overflow: hidden;
+    z-index: 9999999;
+    border-radius: 5px;
+    background: #fff;
+    box-shadow: 0 0 20px rgba(0, 0, 0, .5);
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    opacity: 0;
+    -webkit-transform: translate3d(0, -10%, 0);
+    transform: translate3d(0, -10%, 0);
+    transition: opacity 150ms, -webkit-transform 150ms;
+    transition: transform 150ms, opacity 150ms;
+    transition: transform 150ms, opacity 150ms, -webkit-transform 150ms
+}
 
-                    if (e.keyCode === KEYS.ENTER && cmdPressed) {
-                        $('.cms-modal-buttons .cms-btn-action:first').trigger('click');
-                    }
-                }
-            })
-            .on('keyup.cms.submit', function(e) {
-                if (mac) {
-                    if (e.keyCode === KEYS.CMD_LEFT || e.keyCode === KEYS.CMD_RIGHT || e.keyCode === KEYS.CMD_FIREFOX) {
-                        cmdPressed = false;
-                    }
-                }
-            });
+.cms-structure-mode-structure .cms-modal {
+    -webkit-transform: translate3d(10%, 0, 0);
+    transform: translate3d(10%, 0, 0)
+}
+
+.cms-modal-maximized .cms-modal {
+    right: 0;
+    bottom: 0;
+    top: 0 !important;
+    left: 0 !important;
+    border-radius: 0;
+    margin: 0 !important;
+    width: auto !important;
+    height: auto !important
+}
+
+.cms-modal-maximized .cms-modal .cms-modal-title {
+    cursor: default
+}
+
+.cms-modal-minimized .cms-modal {
+    width: auto !important;
+    height: auto !important;
+    top: 1px !important;
+    margin: 0 !important
+}
+
+.cms-modal-minimized .cms-modal .cms-modal-body, .cms-modal-minimized .cms-modal .cms-modal-breadcrumb, .cms-modal-minimized .cms-modal .cms-modal-foot {
+    display: none !important
+}
+
+.cms-modal-minimized .cms-modal .cms-modal-title {
+    cursor: default;
+    padding-right: 90px
+}
+
+.cms-modal-minimized .cms-modal .cms-modal-title-suffix {
+    display: none
+}
+
+.cms-modal-minimized .cms-modal .cms-modal-minimize {
+    right: 33px
+}
+
+.cms-modal-morphing {
+    transition: all .2s
+}
+
+.cms-modal-open {
+    opacity: 1
+}
+
+.cms-structure-mode-structure .cms-modal-open, .cms-modal-open {
+    -webkit-transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0)
+}
+
+.cms-modal-body {
+    position: absolute;
+    z-index: 10;
+    left: 0;
+    top: 46px;
+    right: 0;
+    bottom: 46px;
+    border-top: 1px solid #ddd;
+    background: #fff;
+    border-bottom: 1px solid #ddd
+}
+
+.cms-modal-foot {
+    position: absolute;
+    overflow: hidden;
+    clear: both;
+    height: 46px;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    z-index: 11
+}
+
+.cms-modal-shim {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 20;
+    width: 100%;
+    height: 100%
+}
+
+.cms-modal-frame {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    height: 100%;
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto
+}
+
+.cms-modal-frame iframe {
+    display: block;
+    width: 100%;
+    height: 100%
+}
+
+.cms-modal-head {
+    position: relative
+}
+
+.cms-modal-title {
+    display: block;
+    color: #454545;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 46px;
+    min-height: 46px;
+    padding: 0 20px;
+    cursor: move;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 100px
+}
+
+.cms-modal-title .cms-modal-title-suffix {
+    font-weight: 400;
+    padding-left: 10px
+}
+
+.cms-modal-close, .cms-modal-maximize, .cms-modal-minimize {
+    display: block;
+    position: absolute;
+    top: 50%;
+    margin-top: -15px;
+    right: 10px;
+    color: #999;
+    text-align: center;
+    width: 30px;
+    height: 30px;
+    cursor: pointer
+}
+
+.cms-modal-close:before, .cms-modal-maximize:before, .cms-modal-minimize:before {
+    position: relative;
+    top: 7px
+}
+
+.cms-modal-close:hover, .cms-modal-maximize:hover, .cms-modal-minimize:hover {
+    color: #0bf
+}
+
+.cms-modal-minimize {
+    right: 70px
+}
+
+.cms-modal-minimized .cms-modal-minimize {
+    color: #0bf
+}
+
+.cms-modal-minimized .cms-modal-minimize:before {
+    content: "\\E01F"
+}
+
+.cms-modal-maximized .cms-modal-minimize {
+    display: none !important
+}
+
+.cms-modal-maximize {
+    right: 40px
+}
+
+.cms-modal-minimized .cms-modal-maximize {
+    display: none !important
+}
+
+.cms-modal-maximized .cms-modal-maximize {
+    color: #0bf
+}
+
+.cms-modal-maximized .cms-modal-maximize:before {
+    content: "\\E016"
+}
+
+.cms-modal-resize {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    z-index: 102;
+    font-size: 10px;
+    color: #999;
+    width: 25px;
+    height: 25px;
+    cursor: nw-resize
+}
+
+.cms-modal-resize span {
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    font-size: 12px
+}
+
+.cms-modal-breadcrumb {
+    display: none !important;
+    font-size: 14px;
+    line-height: 40px;
+    padding: 0 20px;
+    border-top: 1px solid #ddd;
+    overflow-y: hidden;
+    overflow-x: scroll;
+    height: 80px;
+    width: 100%;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch
+}
+
+.cms-modal-breadcrumb a {
+    color: #0bf
+}
+
+.cms-modal-breadcrumb a:hover {
+    color: #007099
+}
+
+.cms-modal-breadcrumb a:after {
+    content: "/";
+    color: #ddd;
+    text-decoration: none;
+    padding: 0 10px
+}
+
+.cms-modal-breadcrumb a.active {
+    color: #999
+}
+
+.cms-modal-breadcrumb a:last-child:after {
+    content: ""
+}
+
+.cms-modal-buttons {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 101;
+    padding: 0 25px 0 10px
+}
+
+.cms-modal-item-buttons {
+    float: right;
+    margin-left: 8px
+}
+
+.cms-modal-item-buttons-left {
+    float: left
+}
+
+.cms-modal-markup .cms-modal-foot {
+    height: 23px
+}
+
+.cms-modal-markup .cms-modal-body {
+    bottom: 23px
+}
+
+.cms-modal-has-breadcrumb .cms-modal-body {
+    top: 86px !important
+}
+
+.cms-modal-has-breadcrumb .cms-modal-breadcrumb {
+    display: block !important
+}
+
+.cms-modal-maximized {
+    overflow: hidden !important
+}
+
+.cms-modal-maximized .cms.cms-toolbar-debug .cms-modal {
+    top: 3px !important
+}
+
+.cms-modal-minimized .cms.cms-toolbar-debug .cms-modal {
+    top: 4px !important
+}
+
+.cms-modal-markup .cms-clipboard-containers {
+    display: block !important
+}
+
+.cms-modal-markup .cms-clipboard-containers .cms-is-dragging {
+    display: block !important;
+    opacity: .3
+}
+
+.cms-modal-markup .cms-plugin-picker {
+    display: block
+}
+
+.cms-modal-markup .cms-quicksearch {
+    display: block
+}
+
+
+:not(.cms-modal):focus {
+    outline: 2px dotted #454545;
+    outline-offset: -3px
+}
+
+:not(.cms-modal):focus::-moz-focus-inner {
+    border: 0 !important
+}
+
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+    :not(.cms-modal):focus {
+        outline: 5px auto -webkit-focus-ring-color;
+        outline-offset: -3px
     }
 }
 
-Modal.options = {
-    onClose: false,
-    closeOnEsc: true,
-    minHeight: 400,
-    minWidth: 800,
-    modalDuration: 200,
-    resizable: true,
-    maximizable: true,
-    minimizable: true
-};
+:not(.cms-modal):focus .cms-hover-tooltip {
+    display: none
+}
 
-export default Modal;
+
+
+span.cms-icon img {
+    width: 20px;
+    height: 20px;
+    float: left;
+    display: inline-block;
+}
+span.cms-icon {
+    width: 20px;
+    height: 20px;
+    margin-top: 6px;
+    float: left;
+    display: inline-block;
+
+    text-rendering: auto; 
+    display: inline-block; 
+    line-height: 1rem; 
+    vertical-align: 20%; 
+    margin-top: -2px !important; 
+}
+
+
+
+.cms-btn {
+    background-image: none;
+    margin-bottom: 0;
+    border-radius: 3px;
+    color: #555;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    background-clip: padding-box;
+    -webkit-appearance: none
+}
+
+.cms-btn.focus, .cms-btn:focus {
+    color: #555;
+    background-color: #f2f2f2;
+    border-color: #d0d0d0;
+    text-decoration: none
+}
+
+.cms-btn:hover {
+    color: #555;
+    background-color: #f2f2f2;
+    border-color: #d0d0d0;
+    text-decoration: none
+}
+
+.cms-btn.cms-btn-active, .cms-btn:active, .cms-dropdown-open .cms-btn.cms-dropdown-toggle {
+    color: #555;
+    background-color: #e6e6e6;
+    border-color: #c3c3c3;
+    box-shadow: inset 0 3px 5px rgba(0, 0, 0, .125)
+}
+
+.cms-btn.cms-btn-active.focus, .cms-btn.cms-btn-active:focus, .cms-btn.cms-btn-active:hover, .cms-btn:active.focus, .cms-btn:active:focus, .cms-btn:active:hover, .cms-dropdown-open .cms-btn.cms-dropdown-toggle:focus, .cms-dropdown-open .cms-btn.cms-dropdown-toggle:hover, .cms-dropdown-open .cms-btn.focus.cms-dropdown-toggle {
+    color: #555;
+    background-color: #d4d4d4;
+    border-color: #9d9d9d
+}
+
+.cms-btn.cms-btn-active, .cms-btn:active, .cms-dropdown-open .cms-btn.cms-dropdown-toggle {
+    background-image: none
+}
+
+.cms-btn.cms-btn-disabled, .cms-btn.cms-btn-disabled.cms-btn-active, .cms-btn.cms-btn-disabled.focus, .cms-btn.cms-btn-disabled:active, .cms-btn.cms-btn-disabled:focus, .cms-btn.cms-btn-disabled:hover, .cms-btn[disabled], .cms-btn[disabled].cms-btn-active, .cms-btn[disabled].focus, .cms-btn[disabled]:active, .cms-btn[disabled]:focus, .cms-btn[disabled]:hover, .cms-dropdown-open .cms-btn.cms-btn-disabled.cms-dropdown-toggle, .cms-dropdown-open .cms-btn[disabled].cms-dropdown-toggle {
+    background-color: rgba(255, 255, 255, .4);
+    border-color: rgba(221, 221, 221, .4);
+    color: #d5d5d5;
+    cursor: not-allowed;
+    box-shadow: none
+}
+
+.cms-btn.cms-btn-disabled.cms-btn-active:before, .cms-btn.cms-btn-disabled.focus:before, .cms-btn.cms-btn-disabled:active:before, .cms-btn.cms-btn-disabled:before, .cms-btn.cms-btn-disabled:focus:before, .cms-btn.cms-btn-disabled:hover:before, .cms-btn[disabled].cms-btn-active:before, .cms-btn[disabled].focus:before, .cms-btn[disabled]:active:before, .cms-btn[disabled]:before, .cms-btn[disabled]:focus:before, .cms-btn[disabled]:hover:before, .cms-dropdown-open .cms-btn.cms-btn-disabled.cms-dropdown-toggle:before, .cms-dropdown-open .cms-btn[disabled].cms-dropdown-toggle:before {
+    color: rgba(85, 85, 85, .4)
+}
+
+.cms-btn-action {
+    background-image: none;
+    margin-bottom: 0;
+    border-radius: 3px;
+    color: #fff;
+    background-color: #0bf;
+    border: 1px solid #0bf;
+    background-clip: padding-box;
+    -webkit-appearance: none
+}
+
+.cms-btn-action.focus, .cms-btn-action:focus {
+    color: #fff;
+    background-color: #00a8e6;
+    border-color: #00a8e6;
+    text-decoration: none
+}
+
+.cms-btn-action:hover {
+    color: #fff;
+    background-color: #00a8e6;
+    border-color: #00a8e6;
+    text-decoration: none
+}
+
+.cms-btn-action.cms-btn-active, .cms-btn-action:active, .cms-dropdown-open .cms-btn-action.cms-dropdown-toggle {
+    color: #fff;
+    background-color: #0096cc;
+    border-color: #0096cc;
+    box-shadow: inset 0 3px 5px rgba(0, 0, 0, .125)
+}
+
+.cms-btn-action.cms-btn-active.focus, .cms-btn-action.cms-btn-active:focus, .cms-btn-action.cms-btn-active:hover, .cms-btn-action:active.focus, .cms-btn-action:active:focus, .cms-btn-action:active:hover, .cms-dropdown-open .cms-btn-action.cms-dropdown-toggle:focus, .cms-dropdown-open .cms-btn-action.cms-dropdown-toggle:hover, .cms-dropdown-open .cms-btn-action.focus.cms-dropdown-toggle {
+    color: #fff;
+    background-color: #007ba8;
+    border-color: #005e80
+}
+
+.cms-btn-action.cms-btn-active, .cms-btn-action:active, .cms-dropdown-open .cms-btn-action.cms-dropdown-toggle {
+    background-image: none
+}
+
+.cms-btn-action.cms-btn-disabled, .cms-btn-action.cms-btn-disabled.cms-btn-active, .cms-btn-action.cms-btn-disabled.focus, .cms-btn-action.cms-btn-disabled:active, .cms-btn-action.cms-btn-disabled:focus, .cms-btn-action.cms-btn-disabled:hover, .cms-btn-action[disabled], .cms-btn-action[disabled].cms-btn-active, .cms-btn-action[disabled].focus, .cms-btn-action[disabled]:active, .cms-btn-action[disabled]:focus, .cms-btn-action[disabled]:hover, .cms-dropdown-open .cms-btn-action.cms-btn-disabled.cms-dropdown-toggle, .cms-dropdown-open .cms-btn-action[disabled].cms-dropdown-toggle {
+    background-color: rgba(0, 187, 255, .4);
+    border-color: rgba(0, 187, 255, .4);
+    color: #fff;
+    cursor: not-allowed;
+    box-shadow: none
+}
+
+.cms-btn-action.cms-btn-disabled.cms-btn-active:before, .cms-btn-action.cms-btn-disabled.focus:before, .cms-btn-action.cms-btn-disabled:active:before, .cms-btn-action.cms-btn-disabled:before, .cms-btn-action.cms-btn-disabled:focus:before, .cms-btn-action.cms-btn-disabled:hover:before, .cms-btn-action[disabled].cms-btn-active:before, .cms-btn-action[disabled].focus:before, .cms-btn-action[disabled]:active:before, .cms-btn-action[disabled]:before, .cms-btn-action[disabled]:focus:before, .cms-btn-action[disabled]:hover:before, .cms-dropdown-open .cms-btn-action.cms-btn-disabled.cms-dropdown-toggle:before, .cms-dropdown-open .cms-btn-action[disabled].cms-dropdown-toggle:before {
+    color: rgba(255, 255, 255, .4)
+}
+
+.cms-btn-caution {
+    background-image: none;
+    margin-bottom: 0;
+    border-radius: 3px;
+    color: #fff;
+    background-color: #ff4000;
+    border: 1px solid #ff4000;
+    background-clip: padding-box;
+    -webkit-appearance: none
+}
+
+.cms-btn-caution.focus, .cms-btn-caution:focus {
+    color: #fff;
+    background-color: #e63900;
+    border-color: #e63900;
+    text-decoration: none
+}
+
+.cms-btn-caution:hover {
+    color: #fff;
+    background-color: #e63900;
+    border-color: #e63900;
+    text-decoration: none
+}
+
+.cms-btn-caution.cms-btn-active, .cms-btn-caution:active, .cms-dropdown-open .cms-btn-caution.cms-dropdown-toggle {
+    color: #fff;
+    background-color: #c30;
+    border-color: #c30;
+    box-shadow: inset 0 3px 5px rgba(0, 0, 0, .125)
+}
+
+.cms-btn-caution.cms-btn-active.focus, .cms-btn-caution.cms-btn-active:focus, .cms-btn-caution.cms-btn-active:hover, .cms-btn-caution:active.focus, .cms-btn-caution:active:focus, .cms-btn-caution:active:hover, .cms-dropdown-open .cms-btn-caution.cms-dropdown-toggle:focus, .cms-dropdown-open .cms-btn-caution.cms-dropdown-toggle:hover, .cms-dropdown-open .cms-btn-caution.focus.cms-dropdown-toggle {
+    color: #fff;
+    background-color: #a82a00;
+    border-color: #802000
+}
+
+.cms-btn-caution.cms-btn-active, .cms-btn-caution:active, .cms-dropdown-open .cms-btn-caution.cms-dropdown-toggle {
+    background-image: none
+}
+
+.cms-btn-caution.cms-btn-disabled, .cms-btn-caution.cms-btn-disabled.cms-btn-active, .cms-btn-caution.cms-btn-disabled.focus, .cms-btn-caution.cms-btn-disabled:active, .cms-btn-caution.cms-btn-disabled:focus, .cms-btn-caution.cms-btn-disabled:hover, .cms-btn-caution[disabled], .cms-btn-caution[disabled].cms-btn-active, .cms-btn-caution[disabled].focus, .cms-btn-caution[disabled]:active, .cms-btn-caution[disabled]:focus, .cms-btn-caution[disabled]:hover, .cms-dropdown-open .cms-btn-caution.cms-btn-disabled.cms-dropdown-toggle, .cms-dropdown-open .cms-btn-caution[disabled].cms-dropdown-toggle {
+    background-color: rgba(255, 64, 0, .4);
+    border-color: rgba(255, 64, 0, .4);
+    color: #fff;
+    cursor: not-allowed;
+    box-shadow: none
+}
+
+.cms-btn-caution.cms-btn-disabled.cms-btn-active:before, .cms-btn-caution.cms-btn-disabled.focus:before, .cms-btn-caution.cms-btn-disabled:active:before, .cms-btn-caution.cms-btn-disabled:before, .cms-btn-caution.cms-btn-disabled:focus:before, .cms-btn-caution.cms-btn-disabled:hover:before, .cms-btn-caution[disabled].cms-btn-active:before, .cms-btn-caution[disabled].focus:before, .cms-btn-caution[disabled]:active:before, .cms-btn-caution[disabled]:before, .cms-btn-caution[disabled]:focus:before, .cms-btn-caution[disabled]:hover:before, .cms-dropdown-open .cms-btn-caution.cms-btn-disabled.cms-dropdown-toggle:before, .cms-dropdown-open .cms-btn-caution[disabled].cms-dropdown-toggle:before {
+    color: rgba(255, 255, 255, .4)
+}
+
+.cms-btn-disabled img {
+    opacity: .2 !important
+}
+      </style>
+      <div class="cms-modal" tabindex="-1" data-touch-action="none">
+        <div class="cms-modal-head" data-touch-action="none">
+            <span class="cms-modal-title" data-touch-action="none">
+                <span class="cms-modal-title-prefix">Title Prefix</span>
+                <span class="cms-modal-title-suffix">Title Suffix</span>
+            </span>
+            <span tabindex="0" class="cms-modal-minimize cms-icon cms-icon-minus" title="Minimize">
+              <img src="img/minus.svg" />
+            </span>
+            <span tabindex="0" class="cms-modal-maximize cms-icon cms-icon-window" title="Maximize">
+              <img src="img/window-maximize.svg" />
+            </span>
+            <span tabindex="0" class="cms-modal-close cms-icon cms-icon-close" title="Close">
+              <img src="img/window-close.svg" />
+            </span>
+        </div>
+        <div class="cms-modal-breadcrumb" data-touch-action="pan-x"></div>
+        <div class="cms-modal-body">
+            <div class="cms-modal-shim"></div>
+            <div class="cms-modal-frame"></div>
+        </div>
+        <div class="cms-modal-foot">
+            <div class="cms-modal-buttons"></div>
+            <div class="cms-modal-resize"><span class="cms-icon cms-icon-handler"></span></div>
+        </div>
+      </div>
+`;
+
+  }
+}
+
+window.customElements.define('admin-modal', adminModal);
