@@ -1,0 +1,23 @@
+{% load static %}
+
+<script src="{% static 'django_admin_webcomponents/js/modal.js' %}" type="module"></script>
+
+<admin-modal></admin-modal>
+
+<script type="application/javascript">
+  document.querySelector('body').addEventListener('click', event => {
+    if (event.target.matches('.modal-control')) {
+      const modal = document.getElementsByTagName('admin-modal')[0];
+      event.preventDefault();
+      modal.open({
+        url: "http://127.0.0.1:8000/en/admin/djangocms_content_expiry/defaultcontentexpiryconfiguration/47/change/",
+        width: "800px",
+        height: "800px",
+        top: "50px",
+        left: "50px"
+      });
+    }
+  });
+</script>
+
+<a href="#" class="modal-control" data-modal="html">Open modal</a>
