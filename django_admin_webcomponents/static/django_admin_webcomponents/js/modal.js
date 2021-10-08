@@ -34,7 +34,7 @@ class adminModal extends HTMLElement {
     this.ui = {
       modal: this.shadowRoot.querySelector('.cms-modal'),
       //body: $('html'),
-      //window: $(window),
+      window: window,
       //toolbarLeftPart: $('.cms-toolbar-left'),
       closeButton: this.shadowRoot.querySelector('.cms-icon-close'),
       minimizeButton: this.shadowRoot.querySelector('.cms-modal-minimize'),
@@ -57,8 +57,23 @@ class adminModal extends HTMLElement {
     this.ui.maximizeButton.addEventListener('click', this.maximize.bind(this));
   }
 
+  /**
+   * Opens the modal either in an iframe or renders markup.
+   *
+   * @method open
+   * @chainable
+   * @param {Object} opts either `opts.url` or `opts.html` are required
+   * @param {Object[]} [opts.breadcrumbs] collection of breadcrumb items
+   * @param {String|HTMLNode|jQuery} [opts.html] html markup to render
+   * @param {String} [opts.title] modal window main title (bold)
+   * @param {String} [opts.subtitle] modal window secondary title (normal)
+   * @param {String} [opts.url] url to render iframe, takes precedence over `opts.html`
+   * @param {Number} [opts.width] sets the width of the modal
+   * @param {Number} [opts.height] sets the height of the modal
+   * @returns {Class} this
+   */
   open(opts) {
-    console.log("Modal: Opening")
+     console.log("Modal: Opening")
 
     // setup internals
     if (!((opts && opts.url) || (opts && opts.html))) {
@@ -82,9 +97,27 @@ class adminModal extends HTMLElement {
     this.ui.resize.toggle(this.options.resizable);
     this.ui.minimizeButton.toggle(this.options.minimizable);
     this.ui.maximizeButton.toggle(this.options.maximizable);
+    */
 
     var position = this._calculateNewPosition(opts);
 
+
+
+
+
+
+    // FIXME: Where was this originally?
+    this.ui.frame.querySelectorAll('*').forEach(n => n.remove());
+
+
+
+
+
+
+
+
+
+    /*
     this.ui.maximizeButton.removeClass('cms-modal-maximize-active');
     this.maximized = false;
 
@@ -103,25 +136,7 @@ class adminModal extends HTMLElement {
 
     // hide tooltip
     CMS.API.Tooltip.hide();
-
     */
-
-    // we need to position the modal in the center
-    const that = this
-    const width = opts.width;
-    const height = opts.height;
-    const top = opts.top;
-    const left = opts.left;
-
-    this.ui.modal.style.display = 'block';
-    this.ui.modal.style.width = width;
-    this.ui.modal.style.height = height;
-    this.ui.modal.style.top = top;
-    this.ui.modal.style.left = left;
-    this.ui.modal.style.marginLeft = -(width / 2);
-    this.ui.modal.style.marginTop = -(height / 2);
-
-    this._cleanUiFrameContents();
 
     // redirect to iframe rendering if url is provided
     if (opts.url) {
@@ -139,14 +154,6 @@ class adminModal extends HTMLElement {
       });
     }
 
-    // setImmediate is required to go into the next frame
-    setTimeout(function () {
-      that.ui.modal.classList.add("cms-modal-open");
-    }, 0);
-
-    // set focus to modal
-    this.ui.modal.focus();
-
     /*
     Helpers.dispatchEvent('modal-loaded', {instance: this});
 
@@ -156,27 +163,240 @@ class adminModal extends HTMLElement {
       previousKeyboardContext = keyboard.getContext();
       previouslyFocusedElement = $(document.activeElement);
     }
-
+    */
     // display modal
-    this._show(
-      $.extend(
-        {
-          duration: this.options.modalDuration
-        },
-        position
-      )
-    );
+    this._show({
+      ...{ duration: this.options.modalDuration },
+      ...position
+    });
+    /*
 
     keyboard.setContext('modal');
     this.ui.modal.trap();
 
     return this;
-  */
+
+     */
   }
 
-  close(){
+  /**
+   * Calculates coordinates and dimensions for modal placement
+   *
+   * @method _calculateNewPosition
+   * @private
+   * @param {Object} [opts]
+   * @param {Number} [opts.width] desired width of the modal
+   * @param {Number} [opts.height] desired height of the modal
+   * @returns {Object}
+   */
+  // eslint-disable-next-line complexity
+  _calculateNewPosition(opts) {
+    // lets set the modal width and height to the size of the browser
+    var widthOffset = 300; // adds margin left and right
+    var heightOffset = 300; // adds margin top and bottom;
+    var screenWidth = this.ui.window.innerWidth;
+    var screenHeight = this.ui.window.innerHeight;
+    var modalWidth = opts.width || this.options.minWidth;
+    var modalHeight = opts.height || this.options.minHeight;
+    // screen width and height calculation, WC = width
+    var screenWidthCalc = screenWidth >= modalWidth + widthOffset;
+    var screenHeightCalc = screenHeight >= modalHeight + heightOffset;
+
+    var width = screenWidthCalc && !opts.width ? screenWidth - widthOffset : modalWidth;
+    var height = screenHeightCalc && !opts.height ? screenHeight - heightOffset : modalHeight;
+
+    let currentLeft = this.ui.modal.style.left;
+    let currentTop = this.ui.modal.style.top;
+    var newLeft;
+    var newTop;
+
+    // jquery made me do it
+    if (currentLeft === '50%') {
+      currentLeft = screenWidth / 2;
+    }
+    if (currentTop === '50%') {
+      currentTop = screenHeight / 2;
+    }
+
+    currentTop = parseInt(currentTop, 10);
+    currentLeft = parseInt(currentLeft, 10);
+
+    // if new width/height go out of the screen - reset position to center of screen
+    if (
+      width / 2 + currentLeft > screenWidth ||
+      height / 2 + currentTop > screenHeight ||
+      currentLeft - width / 2 < 0 ||
+      currentTop - height / 2 < 0
+    ) {
+      newLeft = screenWidth / 2;
+      newTop = screenHeight / 2;
+    }
+
+    // in case, the modal is larger than the window, we trigger fullscreen mode
+    if (width >= screenWidth || height >= screenHeight) {
+      this.triggerMaximized = true;
+    }
+
+    return {
+      width: width,
+      height: height,
+      top: newTop,
+      left: newLeft
+    };
+  }
+
+  /**
+   * Animation helper for opening the sideframe.
+   *
+   * @method _show
+   * @private
+   * @param {Object} opts
+   * @param {Number} opts.width width of the modal
+   * @param {Number} opts.height height of the modal
+   * @param {Number} opts.left left in px of the center of the modal
+   * @param {Number} opts.top top in px of the center of the modal
+   * @param {Number} opts.duration speed of opening, ms (not really used yet)
+   */
+  _show(opts) {
+    // we need to position the modal in the center
+    const that = this;
+    var width = opts.width;
+    var height = opts.height;
+    var speed = opts.duration;
+    var top = opts.top;
+    var left = opts.left;
+
+    if (this.ui.modal.classList.contains('cms-modal-open')) {
+      this.ui.modal.classList.add('cms-modal-morphing');
+    }
+
+    this.ui.modal.style.display = 'block';
+    this.ui.modal.style.width = width;
+    this.ui.modal.style.height = height;
+    this.ui.modal.style.top = top;
+    this.ui.modal.style.left = left;
+    this.ui.modal.style.marginLeft = -(width / 2);
+    this.ui.modal.style.marginTop = -(height / 2);
+
+    // setImmediate is required to go into the next frame
+    setTimeout(function () {
+      that.ui.modal.classList.add("cms-modal-open");
+    }, 0);
+
+    /*
+    this.ui.modal
+      .one('cmsTransitionEnd', function () {
+        that.ui.modal.removeClass('cms-modal-morphing');
+        that.ui.modal.css({
+          'margin-left': -(width / 2),
+          'margin-top': -(height / 2)
+        });
+
+        // check if we should maximize
+        if (that.triggerMaximized) {
+          that.maximize();
+        }
+
+        // changed locked status to allow other modals again
+        CMS.API.locked = false;
+        Helpers.dispatchEvent('modal-shown', {instance: that});
+      })
+      .emulateTransitionEnd(speed);
+
+    // add esc close event
+    this.ui.body.off('keydown.cms.close').on('keydown.cms.close', function (e) {
+      if (e.keyCode === KEYS.ESC && that.options.closeOnEsc) {
+        e.stopPropagation();
+        if (that._confirmDirtyEscCancel()) {
+          that._cancelHandler();
+        }
+      }
+    });
+
+    */
+
+    // set focus to modal
+    this.ui.modal.focus();
+  }
+
+  /**
+   * Closes the current instance.
+   *
+   * @method close
+   * @returns {Boolean|void}
+   */
+  close() {
     console.log("Modal: Closing")
+
     this.ui.modal.classList.remove("cms-modal-open");
+    /*
+
+    var event = Helpers.dispatchEvent('modal-close', {instance: this});
+
+    if (event.isDefaultPrevented()) {
+      return false;
+    }
+
+    Helpers._getWindow().removeEventListener('beforeunload', this._beforeUnloadHandler);
+
+    // handle refresh option
+    if (this.options.onClose) {
+      Helpers.reloadBrowser(this.options.onClose, false);
+    }
+
+    this._hide({
+      duration: this.options.modalDuration / 2
+    });
+
+    this.ui.modal.untrap();
+    keyboard.setContext(previousKeyboardContext);
+    try {
+      previouslyFocusedElement.focus();
+    } catch (e) {
+    }
+
+     */
+  }
+
+
+  /**
+   * Animation helper for closing the iframe.
+   *
+   * @method _hide
+   * @private
+   * @param {Object} opts
+   * @param {Number} [opts.duration=this.options.modalDuration] animation duration
+   */
+  _hide(opts) {
+    var that = this;
+    var duration = this.options.modalDuration;
+
+    if (opts && opts.duration) {
+      duration = opts.duration;
+    }
+
+    this.ui.frame.empty();
+    this.ui.modalBody.removeClass('cms-loader');
+    this.ui.modal.removeClass('cms-modal-open');
+    this.ui.modal
+      .one('cmsTransitionEnd', function () {
+        that.ui.modal.css('display', 'none');
+      })
+      .emulateTransitionEnd(duration);
+
+    // reset maximize or minimize states for #3111
+    setTimeout(function () {
+      if (that.minimized) {
+        that.minimize();
+      }
+      if (that.maximized) {
+        that.maximize();
+      }
+      hideLoader();
+      Helpers.dispatchEvent('modal-closed', {instance: that});
+    }, this.options.duration);
+
+    this.ui.body.off('keydown.cms.close');
   }
 
   maximize() {
@@ -235,10 +455,6 @@ class adminModal extends HTMLElement {
             this.minimized = false;
         }
      */
-  }
-
-  _cleanUiFrameContents() {
-    this.ui.frame.querySelectorAll('*').forEach(n => n.remove());
   }
 
   /**
