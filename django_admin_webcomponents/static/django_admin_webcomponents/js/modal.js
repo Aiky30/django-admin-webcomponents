@@ -2,8 +2,31 @@ class adminModal extends HTMLElement {
   constructor () {
     super();
 
+    // FIXME: this.options = $.extend(true, {}, Modal.options, options);
+    this.options = {
+      onClose: false,
+      closeOnEsc: true,
+      minHeight: 400,
+      minWidth: 800,
+      modalDuration: 200,
+      resizable: true,
+      maximizable: true,
+      minimizable: true
+    }
+
+    // states and events
+    this.click = 'click.cms.modal';
+    this.pointerDown = 'pointerdown.cms.modal contextmenu.cms.modal';
+    this.pointerUp = 'pointerup.cms.modal pointercancel.cms.modal';
+    this.pointerMove = 'pointermove.cms.modal';
+    this.doubleClick = 'dblclick.cms.modal';
+    this.touchEnd = 'touchend.cms.modal';
+    this.keyUp = 'keyup.cms.modal';
     this.maximized = false;
     this.minimized = false;
+    this.triggerMaximized = false;
+    this.saved = false;
+
     this.ui = {}
   }
 
@@ -33,7 +56,6 @@ class adminModal extends HTMLElement {
     this.ui.minimizeButton.addEventListener('click', this.minimize.bind(this));
     this.ui.maximizeButton.addEventListener('click', this.maximize.bind(this));
   }
-
 
   open(opts) {
     console.log("Modal: Opening")
@@ -151,10 +173,12 @@ class adminModal extends HTMLElement {
     return this;
   */
   }
+
   close(){
     console.log("Modal: Closing")
     this.ui.modal.classList.remove("cms-modal-open");
   }
+
   maximize() {
     console.log("Modal: Maximizing")
     // cancel action when minimized
@@ -225,7 +249,7 @@ class adminModal extends HTMLElement {
    * @param {jQuery} iframe loaded iframe element
    */
   _setButtons(iframe) {
-    console.log("Undress the django internals");
+    console.log("_setButtons");
 
     const contents = iframe.contentWindow.document
     let djangoSuit = contents.querySelectorAll('.suit-columns').length > 0;
@@ -309,12 +333,18 @@ class adminModal extends HTMLElement {
       }
 
       // FIXME: Was el
-      buttonWrapper.innerHTML = '<a href="#" class="' + cls + ' ' + item.getAttribute('class') + '">' + title + '</a>';
+      let el = document.createElement("a");
+      let elClassList = cls + ' ' + item.getAttribute('class');
+      el.href = "#";
+      el.classList.add(...elClassList.split(" "));
+      el.textContent = title
+      buttonWrapper.append(el);
 
-      /*
-      el.on(that.click + ' ' + that.touchEnd, function (e) {
+      // FIXME: Was el.on(that.click + ' ' + that.touchEnd, function (e) {
+      el.addEventListener("click", function (e) {
         e.preventDefault();
 
+        /*
         if (item.is('a')) {
           that._loadIframe({
             url: Helpers.updateUrlWithPath(item.prop('href')),
@@ -348,9 +378,10 @@ class adminModal extends HTMLElement {
             }
           }
         }
+        */
+        if (item.tagName === 'input' || 'button') {
+          //that.ui.modalBody.classList.add('cms-loader');
 
-        if (item.is('input') || item.is('button')) {
-          that.ui.modalBody.addClass('cms-loader');
           var frm = item.closest('form');
 
           // In Firefox with 1Password extension installed (FF 45 1password 4.5.6 at least)
@@ -358,10 +389,10 @@ class adminModal extends HTMLElement {
           // deletion of the plugin. Workaround is that if the clicked button
           // is the only button in the form - submit a form, otherwise
           // click on the button
-          if (frm.find('button, input[type="button"], input[type="submit"]').length > 1) {
+          if (frm.querySelectorAll('button, input[type="button"], input[type="submit"]').length > 1) {
             // we need to use native `.click()` event specifically
             // as we are inside an iframe and magic is happening
-            item[0].click();
+            item.click();
           } else {
             // have to dispatch native submit event so all the submit handlers
             // can be fired, see #5590
@@ -379,8 +410,8 @@ class adminModal extends HTMLElement {
             }
           }
         }
+
       });
-      */
 
       // append element
       render.append(buttonWrapper);
@@ -392,16 +423,17 @@ class adminModal extends HTMLElement {
     // FIXME: The cancel button used CMS.config.lang.cancel for the button text
     let cancel = document.createElement("a")
     cancel.href = "#";
-    cancel.class = "cms-btn";
+    cancel.classList.add("cms-btn");
     cancel.textContent = "Cancel"
     cancelButtonWrapper.append(cancel);
-    /*
+
     // manually add cancel button at the end
-    cancel.on(that.click, function (e) {
+    // FIXME: Was: cancel.on(that.click, function(e) {
+    cancel.addEventListener("click", function (e) {
       e.preventDefault();
       that._cancelHandler();
     });
-     */
+
     render.append(cancelButtonWrapper);
 
     /*
@@ -660,9 +692,22 @@ class adminModal extends HTMLElement {
     */
 
   }
+
+  /**
+   * Called whenever default modal action is canceled.
+   *
+   * @method _cancelHandler
+   * @private
+   */
+  _cancelHandler() {
+    this.options.onClose = null;
+    this.close();
+  }
+
   attributeChangedCallback(name, oldValue, newValue) {
 
   }
+
   connectedCallback () {
     this.attachShadow({mode: 'open'});
     this.render()
