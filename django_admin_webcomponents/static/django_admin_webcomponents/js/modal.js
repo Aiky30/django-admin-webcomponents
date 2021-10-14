@@ -205,8 +205,8 @@ class adminModal extends HTMLElement {
     var width = screenWidthCalc && !opts.width ? screenWidth - widthOffset : modalWidth;
     var height = screenHeightCalc && !opts.height ? screenHeight - heightOffset : modalHeight;
 
-    let currentLeft = this.ui.modal.style.left;
-    let currentTop = this.ui.modal.style.top;
+    let currentLeft = window.getComputedStyle(this.ui.modal).left;
+    let currentTop = window.getComputedStyle(this.ui.modal).top;
     var newLeft;
     var newTop;
 
@@ -271,12 +271,12 @@ class adminModal extends HTMLElement {
     }
 
     this.ui.modal.style.display = 'block';
-    this.ui.modal.style.width = width;
-    this.ui.modal.style.height = height;
-    this.ui.modal.style.top = top;
-    this.ui.modal.style.left = left;
-    this.ui.modal.style.marginLeft = -(width / 2);
-    this.ui.modal.style.marginTop = -(height / 2);
+    this.ui.modal.style.width = width + "px";
+    this.ui.modal.style.height = height + "px";
+    this.ui.modal.style.top = top + "px";
+    this.ui.modal.style.left = left + "px";
+    this.ui.modal.style.marginLeft = -(width / 2) + "px";
+    this.ui.modal.style.marginTop = -(height / 2) + "px";
 
     // setImmediate is required to go into the next frame
     setTimeout(function () {
@@ -939,8 +939,8 @@ class adminModal extends HTMLElement {
           position: fixed;
           z-index: 3000;
           padding-top: 100px;
-          left: 0;
-          top: 0;
+          left: 50%;
+          top: 50%;
           width: 100%;
           height: 100%;
           overflow: auto;
