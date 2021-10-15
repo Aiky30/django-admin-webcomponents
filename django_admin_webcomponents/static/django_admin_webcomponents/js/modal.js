@@ -46,7 +46,7 @@ class adminModal extends HTMLElement {
       //breadcrumb: modal.find('.cms-modal-breadcrumb'),
       //closeAndCancel: modal.find('.cms-modal-close, .cms-modal-cancel'),
       modalButtons: this.shadowRoot.querySelector('.cms-modal-buttons'),
-      //modalBody: modal.find('.cms-modal-body'),
+      modalBody: this.shadowRoot.querySelector('.cms-modal-body'),
       frame: this.shadowRoot.querySelector('.cms-modal-frame'),
       //shim: modal.find('.cms-modal-shim')
     };
@@ -106,8 +106,7 @@ class adminModal extends HTMLElement {
 
 
 
-    // FIXME: Where was this originally?
-    this.ui.frame.querySelectorAll('*').forEach(n => n.remove());
+
 
 
 
@@ -126,9 +125,11 @@ class adminModal extends HTMLElement {
       this.minimized = true;
       this.minimize();
     }
-
+    */
     // clear elements
-    this.ui.modalButtons.empty();
+    this.ui.modalButtons.querySelectorAll('*').forEach(n => n.remove());
+
+    /*
     this.ui.breadcrumb.empty();
 
     // remove class from modal when no breadcrumbs is rendered
@@ -327,10 +328,7 @@ class adminModal extends HTMLElement {
    */
   close() {
     console.log("Modal: Closing")
-
-    this.ui.modal.classList.remove("cms-modal-open");
     /*
-
     var event = Helpers.dispatchEvent('modal-close', {instance: this});
 
     if (event.isDefaultPrevented()) {
@@ -343,11 +341,11 @@ class adminModal extends HTMLElement {
     if (this.options.onClose) {
       Helpers.reloadBrowser(this.options.onClose, false);
     }
-
+    */
     this._hide({
       duration: this.options.modalDuration / 2
     });
-
+    /*
     this.ui.modal.untrap();
     keyboard.setContext(previousKeyboardContext);
     try {
@@ -375,9 +373,11 @@ class adminModal extends HTMLElement {
       duration = opts.duration;
     }
 
-    this.ui.frame.empty();
-    this.ui.modalBody.removeClass('cms-loader');
-    this.ui.modal.removeClass('cms-modal-open');
+    this.ui.frame.querySelectorAll('*').forEach(n => n.remove());
+    this.ui.modalBody.classList.remove('cms-loader');
+    this.ui.modal.classList.remove("cms-modal-open");
+
+    /*
     this.ui.modal
       .one('cmsTransitionEnd', function () {
         that.ui.modal.css('display', 'none');
@@ -397,6 +397,8 @@ class adminModal extends HTMLElement {
     }, this.options.duration);
 
     this.ui.body.off('keydown.cms.close');
+
+     */
   }
 
   maximize() {
