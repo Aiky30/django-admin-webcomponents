@@ -1,10 +1,34 @@
+
+/**
+ * Redirects to a specific url or reloads browser.
+ *
+ * @method reloadBrowser
+ * @param {String} url where to redirect. if equal to `REFRESH_PAGE` will reload page instead
+ * @param {Number} timeout=0 timeout in ms
+ * @returns {void}
+ */
+
+
 class adminModal extends HTMLElement {
   constructor () {
     super();
 
     // FIXME: this.options = $.extend(true, {}, Modal.options, options);
+    /* Defaults:
     this.options = {
       onClose: false,
+      closeOnEsc: true,
+      minHeight: 400,
+      minWidth: 800,
+      modalDuration: 200,
+      resizable: true,
+      maximizable: true,
+      minimizable: true
+    }
+     */
+    this.options = {
+      onClose: window.location.href,
+      enforceClose: true,
       closeOnEsc: true,
       minHeight: 400,
       minWidth: 800,
@@ -28,6 +52,27 @@ class adminModal extends HTMLElement {
     this.saved = false;
 
     this.ui = {}
+  }
+
+  reloadBrowser(url, timeout) {
+      const that = this;
+      // is there a parent window?
+      const win = window;
+      const parent = win.parent ? win.parent : win;
+
+      that._isReloading = true;
+
+      // add timeout if provided
+      parent.setTimeout(function() {
+          if (url === 'REFRESH_PAGE' || !url || url === parent.location.href) {
+              // ensure page is always reloaded
+              parent.location.reload();
+          } else {
+              // location.reload() takes precedence over this, so we
+              // don't want to reload the page if we need a redirect
+              parent.location.href = url;
+          }
+      }, timeout || 0);
   }
 
   _initUI() {
@@ -336,12 +381,12 @@ class adminModal extends HTMLElement {
     }
 
     Helpers._getWindow().removeEventListener('beforeunload', this._beforeUnloadHandler);
-
+    */
     // handle refresh option
     if (this.options.onClose) {
-      Helpers.reloadBrowser(this.options.onClose, false);
+      this.reloadBrowser(this.options.onClose, false);
     }
-    */
+
     this._hide({
       duration: this.options.modalDuration / 2
     });
@@ -491,31 +536,25 @@ class adminModal extends HTMLElement {
       // meaning, if you have save - it should close the iframe,
       // if you hit save and continue editing it should be default form behaviour
       if (that.hideFrame) {
-        that.ui.modal.querySelector('.cms-modal-frame iframe').hide();
+        that.ui.modal.querySelector('.cms-modal-frame iframe').style.display = "none";
         // page has been saved, run checkup
         that.saved = true;
       }
     });
-    var buttons = row.querySelectorAll('input, a, button');
 
-    /*
+    let buttons = [];
+    if (Boolean(row)) {
+      buttons = row.querySelectorAll('input, a, button');
+    }
 
-    // these are the buttons _inside_ the iframe
-    // we need to listen to this click event to support submitting
-    // a form by pressing enter inside of a field
-    // click is actually triggered by submit
-    buttons.on('click', function () {
-      if ($(this).hasClass('default')) {
-        that.hideFrame = true;
-      }
-    });
-    */
     // hide all submit-rows
-    contents.querySelector('.submit-row').style.display = "none";
+    const submitRow = contents.querySelector('.submit-row')
+    if (Boolean(submitRow)) {
+      submitRow.style.display = "none";
+    }
     /*
     // if there are no given buttons within the submit-row area
     // scan deeper within the form itself
-    // istanbul ignore next
     if (!buttons.length) {
       row = iframe.contents().find('body:not(.change-list) #content form:eq(0)');
       buttons = row.find('input[type="submit"], button[type="submit"]');
@@ -525,6 +564,17 @@ class adminModal extends HTMLElement {
 
     // loop over input buttons
     buttons.forEach(function (item, index) {
+
+      // these are the buttons _inside_ the iframe
+      // we need to listen to this click event to support submitting
+      // a form by pressing enter inside of a field
+      // click is actually triggered by submit
+      item.addEventListener('click', function () {
+        if (item.classList.contains('default')) {
+          that.hideFrame = true;
+        }
+      });
+
       let buttonWrapper = document.createElement("div")
       buttonWrapper.classList.add("cms-modal-item-buttons");
 
@@ -773,10 +823,11 @@ class adminModal extends HTMLElement {
           Boolean(contents.querySelectorAll('.dashboard #content-main').length) &&
           !contents.querySelectorAll('.messagelist .error').length;
       }
-      /*
+
       // show messages in toolbar if provided
-      messageList = contents.find('.messagelist');
-      messages = messageList.find('li');
+      messageList = contents.querySelectorAll('.messagelist');
+      messages = contents.querySelectorAll('.messagelist li');
+      /*
       if (messages.length) {
         CMS.API.Messages.open({
           message: messages.eq(0).html()
@@ -793,18 +844,19 @@ class adminModal extends HTMLElement {
       // hide loaders
       that.ui.modalBody.removeClass('cms-loader');
       hideLoader();
-
+      */
       // determine if we should close the modal or reload
       if (messages.length && that.enforceReload) {
         that.ui.modalBody.addClass('cms-loader');
+        /*
         showLoader();
-        Helpers.reloadBrowser();
+        */
+        that.reloadBrowser();
       }
       if (messages.length && that.enforceClose) {
         that.close();
         return false;
       }
-      */
 
       // adding django hacks
       contents.querySelectorAll('.viewsitelink').forEach(function (link) {
@@ -829,14 +881,18 @@ class adminModal extends HTMLElement {
 
         /*
         that.ui.modalBody.addClass('cms-loader');
+        */
         if (that.options.onClose) {
+          /*
           showLoader();
-          Helpers.reloadBrowser(
+          */
+          that.reloadBrowser(
             that.options.onClose ? that.options.onClose : window.location.href,
-            false,
-            true
+            false
           );
-        } else {
+        }
+        /*
+        else {
           setTimeout(function () {
             if (that.justDeleted && (that.justDeletedPlugin || that.justDeletedPlaceholder)) {
               CMS.API.StructureBoard.invalidateState(
